@@ -1,8 +1,15 @@
 import { WebClient } from "@slack/web-api";
 import {
+  describeVerificationFailure,
+  formatAttendanceReportSummary,
+  formatAttendanceReportTable,
   hoursCredited,
   resolveAllDayHours,
+  verifyAttendanceCoverage,
+  type AttendanceReportRow,
+  type AttendanceStatus,
   type MeetingType,
+  type VerificationResult,
 } from "./domain/attendance.js";
 import {
   checkinPostTime,
@@ -18,6 +25,7 @@ import {
   anyInstallation,
   getAttendanceForEvent,
   getEventByCalendarId,
+  getRoster,
   getSetting,
   insertEvent,
   listEventsDueForCheckin,
@@ -25,6 +33,7 @@ import {
   markCheckinPosted,
   markEventFinalized,
   markEventRemoved,
+  markVerificationFailed,
   setHoursCredited,
   snapshotRoster,
   updateEventFromCalendar,
@@ -37,6 +46,8 @@ import {
   postCheckinPost,
 } from "./slack/checkin.js";
 import { syncAttendanceFromSlack } from "./slack/attendanceEvents.js";
+import { listHawkBotAdmins } from "./slack/authz.js";
+import { openDirectMessage } from "./slack/dm.js";
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -173,42 +184,175 @@ async function postDueCheckins(
   }
 }
 
+async function notifyVerificationFailure(
+  client: WebClient,
+  event: EventRow,
+  verification: Extract<VerificationResult, { ok: false }>
+): Promise<void> {
+  const reason = describeVerificationFailure(verification);
+  const text = [
+    `⚠️ Reaction Cutoff Verification failed for *${event.title}* (Event #${event.id}).`,
+    `Reason: ${reason}`,
+    "The Check-in Post was left in place — nothing was deleted or finalized.",
+    `Once you understand what went wrong, run \`/hawk event retry-cutoff ${event.id}\`.`,
+  ].join("\n");
+
+  for (const userId of await listHawkBotAdmins(client)) {
+    const dmChannel = await openDirectMessage(client, userId);
+    if (!dmChannel) continue;
+    await client.chat.postMessage({ channel: dmChannel, text }).catch((err) =>
+      log.error("could not DM verification failure", {
+        userId,
+        eventId: event.id,
+        error: String(err),
+      })
+    );
+  }
+}
+
+async function buildReportRows(
+  client: WebClient,
+  event: EventRow,
+  reactions: Map<string, string[]>
+): Promise<AttendanceReportRow[]> {
+  const attendanceByUser = new Map(
+    getAttendanceForEvent(event.id).map((r) => [r.user_id, r])
+  );
+
+  const rows: AttendanceReportRow[] = [];
+  for (const userId of getRoster(event.id)) {
+    const info = await client.users
+      .info({ user: userId })
+      .catch(() => undefined);
+    const displayName = info?.user?.real_name ?? info?.user?.name ?? userId;
+    const attendanceRow = attendanceByUser.get(userId);
+    const status: AttendanceStatus = attendanceRow?.status ?? "no_response";
+    rows.push({
+      displayName,
+      status,
+      reactions: reactions.get(userId) ?? [],
+      note: attendanceRow?.note ?? null,
+    });
+  }
+  return rows;
+}
+
+/** Skips quietly until an admin sets `attendance_report_channel`. */
+async function postEventAttendanceReport(
+  client: WebClient,
+  event: EventRow,
+  reactions: Map<string, string[]>
+): Promise<void> {
+  const channelId = getSetting("attendance_report_channel");
+  if (!channelId) return;
+
+  const rows = await buildReportRows(client, event, reactions);
+  const hoursPerAttendee = hoursCredited({
+    meetingType: event.meeting_type as MeetingType,
+    startsAt: new Date(event.starts_at),
+    endsAt: new Date(event.ends_at),
+    defaultAllDayHours: defaultAllDayHours(),
+  });
+
+  const posted = await client.chat.postMessage({
+    channel: channelId,
+    text: formatAttendanceReportSummary({
+      eventTitle: event.title,
+      rows,
+      hoursPerAttendee,
+    }),
+  });
+  if (posted.channel && posted.ts) {
+    await client.chat.postMessage({
+      channel: posted.channel,
+      thread_ts: posted.ts,
+      text: formatAttendanceReportTable(rows),
+    });
+  }
+}
+
+/**
+ * Resync, verify, and — only on success — credit hours, delete the
+ * Check-in Post, finalize, and post the Event Attendance Report. Shared by
+ * the scheduler's normal sweep and the manual `/hawk event retry-cutoff`
+ * command, so a retry is exactly the same flow run again on demand.
+ */
+export async function attemptEventCutoff(
+  client: WebClient,
+  botUserId: string,
+  event: EventRow
+): Promise<VerificationResult> {
+  let reactions = new Map<string, string[]>();
+  let resyncSucceeded = true;
+  try {
+    ({ reactions } = await syncAttendanceFromSlack(client, event, botUserId));
+  } catch (err) {
+    resyncSucceeded = false;
+    log.error("cutoff resync failed", {
+      eventId: event.id,
+      error: String(err),
+    });
+  }
+
+  const recordedUserIds = getAttendanceForEvent(event.id)
+    .filter((r) => r.status !== null)
+    .map((r) => r.user_id);
+
+  const verification = verifyAttendanceCoverage({
+    resyncSucceeded,
+    reactedUserIds: [...reactions.keys()],
+    recordedUserIds,
+  });
+
+  if (!verification.ok) {
+    markVerificationFailed(event.id);
+    await notifyVerificationFailure(client, event, verification);
+    log.error("cutoff verification failed", {
+      eventId: event.id,
+      verification,
+    });
+    return verification;
+  }
+
+  const allDayHours = defaultAllDayHours();
+  for (const row of getAttendanceForEvent(event.id)) {
+    if (row.status !== "attending") continue;
+    const hours = hoursCredited({
+      meetingType: event.meeting_type as MeetingType,
+      startsAt: new Date(event.starts_at),
+      endsAt: new Date(event.ends_at),
+      defaultAllDayHours: allDayHours,
+    });
+    setHoursCredited(event.id, row.user_id, hours);
+  }
+
+  if (event.checkin_channel && event.checkin_message_ts) {
+    await client.chat
+      .delete({
+        channel: event.checkin_channel,
+        ts: event.checkin_message_ts,
+      })
+      .catch((err) =>
+        log.error("could not delete check-in post", {
+          eventId: event.id,
+          error: String(err),
+        })
+      );
+  }
+  markEventFinalized(event.id);
+  log.info("event finalized", { eventId: event.id });
+
+  await postEventAttendanceReport(client, event, reactions);
+
+  return verification;
+}
+
 async function finalizeDueCutoffs(
   client: WebClient,
   botUserId: string
 ): Promise<void> {
-  const allDayHours = defaultAllDayHours();
-
   for (const event of listEventsDueForCutoff(new Date().toISOString())) {
-    // One last reconciliation against Slack's live state before it's gone.
-    await syncAttendanceFromSlack(client, event, botUserId);
-
-    for (const row of getAttendanceForEvent(event.id)) {
-      if (row.status !== "attending") continue;
-      const hours = hoursCredited({
-        meetingType: event.meeting_type as MeetingType,
-        startsAt: new Date(event.starts_at),
-        endsAt: new Date(event.ends_at),
-        defaultAllDayHours: allDayHours,
-      });
-      setHoursCredited(event.id, row.user_id, hours);
-    }
-
-    if (event.checkin_channel && event.checkin_message_ts) {
-      await client.chat
-        .delete({
-          channel: event.checkin_channel,
-          ts: event.checkin_message_ts,
-        })
-        .catch((err) =>
-          log.error("could not delete check-in post", {
-            eventId: event.id,
-            error: String(err),
-          })
-        );
-    }
-    markEventFinalized(event.id);
-    log.info("event finalized", { eventId: event.id });
+    await attemptEventCutoff(client, botUserId, event);
   }
 }
 

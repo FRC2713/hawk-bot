@@ -157,6 +157,7 @@ export type EventRow = {
   checkin_posted_at: string | null;
   finalized_at: string | null;
   removed_at: string | null;
+  verification_failed_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -286,6 +287,26 @@ export function markEventFinalized(id: number): void {
     .run(now, now, id);
 }
 
+/** Reaction Cutoff Verification failed — blocks deletion/finalization. */
+export function markVerificationFailed(id: number): void {
+  const now = nowIso();
+  db()
+    .prepare(
+      "UPDATE events SET verification_failed_at = ?, updated_at = ? WHERE id = ?"
+    )
+    .run(now, now, id);
+}
+
+/** Cleared at the start of a manual retry, so the attempt starts fresh. */
+export function clearVerificationFailed(id: number): void {
+  const now = nowIso();
+  db()
+    .prepare(
+      "UPDATE events SET verification_failed_at = NULL, updated_at = ? WHERE id = ?"
+    )
+    .run(now, id);
+}
+
 export function listEventsDueForCheckin(nowIsoStr: string): EventRow[] {
   return db()
     .prepare<[string], EventRow>(
@@ -296,12 +317,14 @@ export function listEventsDueForCheckin(nowIsoStr: string): EventRow[] {
     .all(nowIsoStr);
 }
 
+/** Excludes anything already flagged by Reaction Cutoff Verification — those only move via a manual retry. */
 export function listEventsDueForCutoff(nowIsoStr: string): EventRow[] {
   return db()
     .prepare<[string], EventRow>(
       `SELECT * FROM events
        WHERE checkin_posted_at IS NOT NULL AND finalized_at IS NULL
-         AND removed_at IS NULL AND reaction_cutoff_at <= ?`
+         AND removed_at IS NULL AND verification_failed_at IS NULL
+         AND reaction_cutoff_at <= ?`
     )
     .all(nowIsoStr);
 }

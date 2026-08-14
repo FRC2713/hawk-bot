@@ -10,9 +10,10 @@ export const whoami: Command = {
         `You are <@${ctx.userId}> (\`${ctx.userId}\`)`,
         `in channel \`${ctx.channelId}\``,
         admin
-          ? "Hawk Bot treats you as an admin — admin commands are available."
-          : "Hawk Bot does not treat you as an admin. Workspace Owners and " +
-            "Admins get the admin commands; nothing else grants them.",
+          ? "Hawk Bot treats you as a HawkBot Admin — admin commands are available."
+          : "Hawk Bot does not treat you as a HawkBot Admin. Membership in " +
+            "the HawkBot Admin group grants it (workspace Owners always " +
+            "have it too); nothing else does.",
       ].join("\n"),
     };
   },

@@ -146,3 +146,121 @@ export function toAttendanceCsv(rows: readonly AttendanceCsvRow[]): string {
   });
   return [CSV_HEADER, ...lines].join("\n") + "\n";
 }
+
+export type VerificationResult =
+  | { ok: true }
+  | { ok: false; reason: "resync_failed" }
+  | { ok: false; reason: "coverage_mismatch"; missingUserIds: string[] };
+
+/**
+ * Reaction Cutoff Verification: the resync's own Slack calls have to have
+ * succeeded, and every person with a currently-qualifying reaction has to
+ * have a matching attendance record. A stale record for someone who since
+ * removed their reaction is not a failure — only a reaction with nothing
+ * recorded for it is, since that's the shape of bug this guards against.
+ */
+export function verifyAttendanceCoverage(args: {
+  resyncSucceeded: boolean;
+  reactedUserIds: readonly string[];
+  recordedUserIds: readonly string[];
+}): VerificationResult {
+  if (!args.resyncSucceeded) return { ok: false, reason: "resync_failed" };
+  const recorded = new Set(args.recordedUserIds);
+  const missingUserIds = args.reactedUserIds.filter((id) => !recorded.has(id));
+  if (missingUserIds.length > 0) {
+    return { ok: false, reason: "coverage_mismatch", missingUserIds };
+  }
+  return { ok: true };
+}
+
+/** One plain-English description of a failed verification, shared by the admin DM and the retry command's reply. */
+export function describeVerificationFailure(
+  result: Extract<VerificationResult, { ok: false }>
+): string {
+  return result.reason === "resync_failed"
+    ? "the reaction resync failed (a Slack API call errored)"
+    : `${result.missingUserIds.length} reacted user(s) have no matching attendance record`;
+}
+
+export type AttendanceReportRow = {
+  displayName: string;
+  status: AttendanceStatus;
+  /** Raw reaction names, e.g. ["+1", "clock3"]; empty for No Response. */
+  reactions: readonly string[];
+  note: string | null;
+};
+
+/**
+ * The Event Attendance Report's top-level channel message — kept to a
+ * couple of lines. States hours per attendee, not a summed total, since
+ * every Attending person on one Event is credited the same hours.
+ */
+export function formatAttendanceReportSummary(args: {
+  eventTitle: string;
+  rows: readonly AttendanceReportRow[];
+  hoursPerAttendee: number;
+}): string {
+  const attending = args.rows.filter((r) => r.status === "attending").length;
+  const notAttending = args.rows.filter(
+    (r) => r.status === "not_attending"
+  ).length;
+  const noResponse = args.rows.filter((r) => r.status === "no_response").length;
+  return [
+    `*${args.eventTitle}*`,
+    `${attending} attending (${args.hoursPerAttendee} hrs each) · ${notAttending} not attending · ${noResponse} no response`,
+  ].join("\n");
+}
+
+const STATUS_LABEL: Record<AttendanceStatus, string> = {
+  attending: "Attending",
+  not_attending: "Not Attending",
+  no_response: "No Response",
+};
+
+/**
+ * The Event Attendance Report's threaded detail: one aligned row per
+ * person — name, derived status (so a reader doesn't need to know the
+ * 👍-wins-regardless precedence rule by heart), raw reactions, and their
+ * Attendance Note if any.
+ */
+export function formatAttendanceReportTable(
+  rows: readonly AttendanceReportRow[]
+): string {
+  if (rows.length === 0) return "```\n(no one on the roster)\n```";
+
+  const reactionsText = (r: AttendanceReportRow) =>
+    r.reactions.length > 0 ? r.reactions.join(" ") : "—";
+
+  const nameWidth = Math.max(4, ...rows.map((r) => r.displayName.length));
+  const statusWidth = Math.max(
+    6,
+    ...Object.values(STATUS_LABEL).map((s) => s.length)
+  );
+  const reactionsWidth = Math.max(
+    9,
+    ...rows.map((r) => reactionsText(r).length)
+  );
+
+  const header =
+    "Name".padEnd(nameWidth) +
+    "  " +
+    "Status".padEnd(statusWidth) +
+    "  " +
+    "Reactions".padEnd(reactionsWidth) +
+    "  " +
+    "Note";
+
+  const lines = rows.map((r) =>
+    (
+      r.displayName.padEnd(nameWidth) +
+      "  " +
+      STATUS_LABEL[r.status].padEnd(statusWidth) +
+      "  " +
+      reactionsText(r).padEnd(reactionsWidth) +
+      "  " +
+      (r.note ?? "")
+    ).trimEnd()
+  );
+
+  return ["```", header, ...lines, "```"].join("\n");
+}

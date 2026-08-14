@@ -4,12 +4,16 @@ import {
   attendancePercent,
   attendanceStatusFor,
   currentSeasonRange,
+  formatAttendanceReportSummary,
+  formatAttendanceReportTable,
   hoursCredited,
   isClockReaction,
   isThumbsUpReaction,
   needsLateNudge,
   resolveAllDayHours,
   toAttendanceCsv,
+  verifyAttendanceCoverage,
+  type AttendanceReportRow,
 } from "../src/domain/attendance.js";
 
 // Season math reads wall-clock dates via local Date methods, which depend on
@@ -128,4 +132,112 @@ test("CSV export escapes fields that contain commas or quotes", () => {
 test("default All-Day hours falls back to the starting default until set", () => {
   assert.equal(resolveAllDayHours(undefined), 8);
   assert.equal(resolveAllDayHours("6.5"), 6.5);
+});
+
+test("verification fails outright if the resync itself failed, regardless of coverage", () => {
+  const result = verifyAttendanceCoverage({
+    resyncSucceeded: false,
+    reactedUserIds: [],
+    recordedUserIds: [],
+  });
+  assert.deepEqual(result, { ok: false, reason: "resync_failed" });
+});
+
+test("verification passes when every reacted user has a recorded row", () => {
+  const result = verifyAttendanceCoverage({
+    resyncSucceeded: true,
+    reactedUserIds: ["U1", "U2"],
+    recordedUserIds: ["U1", "U2"],
+  });
+  assert.deepEqual(result, { ok: true });
+});
+
+test("verification fails and names exactly who's missing when a reacted user has no recorded row", () => {
+  const result = verifyAttendanceCoverage({
+    resyncSucceeded: true,
+    reactedUserIds: ["U1", "U2", "U3"],
+    recordedUserIds: ["U1"],
+  });
+  assert.deepEqual(result, {
+    ok: false,
+    reason: "coverage_mismatch",
+    missingUserIds: ["U2", "U3"],
+  });
+});
+
+test("a stale recorded row for someone who removed their reaction doesn't fail verification", () => {
+  const result = verifyAttendanceCoverage({
+    resyncSucceeded: true,
+    reactedUserIds: ["U1"],
+    recordedUserIds: ["U1", "U2"],
+  });
+  assert.deepEqual(result, { ok: true });
+});
+
+test("the report summary states counts and hours-per-attendee, not a summed total", () => {
+  const rows: AttendanceReportRow[] = [
+    { displayName: "Ada", status: "attending", reactions: ["+1"], note: null },
+    {
+      displayName: "Grace",
+      status: "attending",
+      reactions: ["+1"],
+      note: null,
+    },
+    {
+      displayName: "Alan",
+      status: "not_attending",
+      reactions: ["x"],
+      note: null,
+    },
+    {
+      displayName: "Barbara",
+      status: "no_response",
+      reactions: [],
+      note: null,
+    },
+  ];
+  const summary = formatAttendanceReportSummary({
+    eventTitle: "Team Meeting",
+    rows,
+    hoursPerAttendee: 2,
+  });
+  assert.equal(
+    summary,
+    "*Team Meeting*\n2 attending (2 hrs each) · 1 not attending · 1 no response"
+  );
+});
+
+test("the report table shows one aligned row per person, with a placeholder for no reactions", () => {
+  const rows: AttendanceReportRow[] = [
+    { displayName: "Ada", status: "attending", reactions: ["+1"], note: null },
+    {
+      displayName: "Barbara",
+      status: "no_response",
+      reactions: [],
+      note: null,
+    },
+  ];
+  const table = formatAttendanceReportTable(rows);
+  assert.match(table, /^```\n/);
+  assert.match(table, /\n```$/);
+  assert.match(table, /Ada\s+Attending\s+\+1/);
+  assert.match(table, /Barbara\s+No Response\s+—/);
+});
+
+test("the report table appends a person's Attendance Note when they left one", () => {
+  const rows: AttendanceReportRow[] = [
+    {
+      displayName: "Alan",
+      status: "not_attending",
+      reactions: ["x"],
+      note: "sick",
+    },
+  ];
+  const table = formatAttendanceReportTable(rows);
+  assert.match(table, /Alan\s+Not Attending\s+x\s+sick/);
+});
+
+test("an empty roster renders a placeholder instead of an empty table", () => {
+  const table = formatAttendanceReportTable([]);
+  assert.equal(table, "```\n(no one on the roster)\n```");
 });

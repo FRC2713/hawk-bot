@@ -45,8 +45,8 @@ oauth_config:
       - chat:write.public
       - app_mentions:read
       - im:write
-      # Resolves whether someone is a workspace Owner or Admin, which is the
-      # whole of this app's authorization model.
+      # Resolves whether someone is a workspace Owner, the fallback half of
+      # the HawkBot Admin authorization model.
       - users:read
       - team:read
       - channels:read
@@ -58,6 +58,10 @@ oauth_config:
       - channels:history
       - groups:history
       - files:write
+      # HawkBot Admin: resolving admin_usergroup's handle to a group id, and
+      # reading that group's membership — the other half of the
+      # authorization model, alongside the Owner check above.
+      - usergroups:read
     # Deliberately none. Hawk Bot never acts on a person's behalf.
 
 settings:
