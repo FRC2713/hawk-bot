@@ -173,6 +173,15 @@ export function verifyAttendanceCoverage(args: {
   return { ok: true };
 }
 
+/** One plain-English description of a failed verification, shared by the admin DM and the retry command's reply. */
+export function describeVerificationFailure(
+  result: Extract<VerificationResult, { ok: false }>
+): string {
+  return result.reason === "resync_failed"
+    ? "the reaction resync failed (a Slack API call errored)"
+    : `${result.missingUserIds.length} reacted user(s) have no matching attendance record`;
+}
+
 export type AttendanceReportRow = {
   displayName: string;
   status: AttendanceStatus;

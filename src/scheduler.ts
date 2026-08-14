@@ -1,5 +1,6 @@
 import { WebClient } from "@slack/web-api";
 import {
+  describeVerificationFailure,
   formatAttendanceReportSummary,
   formatAttendanceReportTable,
   hoursCredited,
@@ -188,10 +189,7 @@ async function notifyVerificationFailure(
   event: EventRow,
   verification: Extract<VerificationResult, { ok: false }>
 ): Promise<void> {
-  const reason =
-    verification.reason === "resync_failed"
-      ? "the reaction resync itself failed (a Slack API call errored)"
-      : `${verification.missingUserIds.length} reacted user(s) have no matching attendance record`;
+  const reason = describeVerificationFailure(verification);
   const text = [
     `⚠️ Reaction Cutoff Verification failed for *${event.title}* (Event #${event.id}).`,
     `Reason: ${reason}`,

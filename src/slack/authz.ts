@@ -41,6 +41,12 @@ async function groupMemberIds(
   }
 }
 
+/** The `admin_usergroup` setting's member set, or empty if it isn't set yet. */
+function configuredGroupMemberIds(client: WebClient): Promise<Set<string>> {
+  const groupId = getSetting("admin_usergroup");
+  return groupId ? groupMemberIds(client, groupId) : Promise.resolve(new Set());
+}
+
 const ownerCache = new Map<string, { value: boolean; at: number }>();
 
 async function isWorkspaceOwner(
@@ -75,11 +81,8 @@ export async function isHawkBotAdmin(
   client: WebClient,
   userId: string
 ): Promise<boolean> {
-  const groupId = getSetting("admin_usergroup");
   const [memberIds, owner] = await Promise.all([
-    groupId
-      ? groupMemberIds(client, groupId)
-      : Promise.resolve(new Set<string>()),
+    configuredGroupMemberIds(client),
     isWorkspaceOwner(client, userId),
   ]);
   return decideHawkBotAdmin({
@@ -115,11 +118,8 @@ async function listWorkspaceOwners(client: WebClient): Promise<string[]> {
  * See CONTEXT.md, Reaction Cutoff Verification.
  */
 export async function listHawkBotAdmins(client: WebClient): Promise<string[]> {
-  const groupId = getSetting("admin_usergroup");
   const [memberIds, owners] = await Promise.all([
-    groupId
-      ? groupMemberIds(client, groupId)
-      : Promise.resolve(new Set<string>()),
+    configuredGroupMemberIds(client),
     listWorkspaceOwners(client),
   ]);
   return [...new Set([...memberIds, ...owners])];

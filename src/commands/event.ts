@@ -5,6 +5,7 @@ import {
   getSetting,
   insertEvent,
 } from "../db/repo.js";
+import { describeVerificationFailure } from "../domain/attendance.js";
 import {
   checkinPostTime,
   reactionCutoff,
@@ -38,11 +39,9 @@ async function runRetryCutoff(
   if (result.ok) {
     return { text: `Event #${id} finalized successfully.` };
   }
-  const why =
-    result.reason === "resync_failed"
-      ? "the resync failed again"
-      : `${result.missingUserIds.length} user(s) are still missing`;
-  return { text: `Retry failed again for Event #${id}: ${why}.` };
+  return {
+    text: `Retry failed again for Event #${id}: ${describeVerificationFailure(result)}.`,
+  };
 }
 
 /**

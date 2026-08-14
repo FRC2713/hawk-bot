@@ -57,6 +57,10 @@ export function registerCommands(app: App): void {
           args: parsed.args,
           rest: parsed.rest,
           client,
+          // Bolt populates this from the installation for every listener,
+          // slash commands included; the fallback only matters if that ever
+          // stops being true, in which case reaction-tallying code that
+          // excludes the bot's own id would need to exclude nothing instead.
           botUserId: context.botUserId ?? "",
           isAdmin,
           registry: COMMANDS,

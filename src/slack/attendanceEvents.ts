@@ -76,8 +76,21 @@ export async function syncAttendanceFromSlack(
 
   for (const [userId, names] of byUser) {
     if (!needsLateNudge(names) || wasNudged(event.id, userId)) continue;
-    await sendLateNudge(client, event, userId);
-    markNudged(event.id, userId);
+    // Best-effort: a DM failure here (DMs restricted, etc.) must not throw
+    // out of this function — Reaction Cutoff Verification wraps the resync
+    // in try/catch to detect an actual data-sync failure, and conflating an
+    // unrelated nudge failure with that would wrongly block a whole Event's
+    // cutoff. Not marking it nudged means it's retried on the next resync.
+    try {
+      await sendLateNudge(client, event, userId);
+      markNudged(event.id, userId);
+    } catch (err) {
+      log.warn("could not send late nudge", {
+        eventId: event.id,
+        userId,
+        error: String(err),
+      });
+    }
   }
 
   return { reactions: byUser };
