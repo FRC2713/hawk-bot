@@ -95,6 +95,14 @@ export function upcomingWeekRange(postedAt: Date): WeekRange {
   return { start, end };
 }
 
+/** Whether `date` falls within a Weekly Summary Post's week — the routing rule for Change Reflection. */
+export function isWithinWeek(date: Date, range: WeekRange): boolean {
+  return (
+    date.getTime() >= range.start.getTime() &&
+    date.getTime() < range.end.getTime()
+  );
+}
+
 export type WeeklySummaryEventInfo = {
   title: string;
   meetingType: CalendarMeetingType;
@@ -160,7 +168,7 @@ export function renderRemovedLine(snapshot: WeeklySummaryEventInfo): string {
 
 /** An Event discovered after the summary's initial post — tagged, not struck through (no "original" to contrast). */
 export function renderNewLine(current: WeeklySummaryEventInfo): string {
-  return `🆕 *New:* ${formatWeeklySummaryLine(current)}`;
+  return `🆕 _New_ ${formatWeeklySummaryLine(current)}`;
 }
 
 /**

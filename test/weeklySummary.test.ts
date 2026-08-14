@@ -5,6 +5,7 @@ import {
   assembleWeeklySummaryMessage,
   formatWeeklySummaryLine,
   isWeeklySummaryDue,
+  isWithinWeek,
   renderEditedLine,
   renderNewLine,
   renderRemovedLine,
@@ -112,6 +113,17 @@ test("posting mid-week rolls forward to the following Monday", () => {
   assert.equal(range.start.toISOString(), "2026-01-12T00:00:00.000Z");
 });
 
+test("a date within the week range is within it; the boundaries and outside are not", () => {
+  const range = {
+    start: new Date("2026-01-05T00:00:00Z"),
+    end: new Date("2026-01-12T00:00:00Z"),
+  };
+  assert.equal(isWithinWeek(new Date("2026-01-05T00:00:00Z"), range), true);
+  assert.equal(isWithinWeek(new Date("2026-01-08T15:00:00Z"), range), true);
+  assert.equal(isWithinWeek(new Date("2026-01-12T00:00:00Z"), range), false);
+  assert.equal(isWithinWeek(new Date("2026-01-04T23:59:59Z"), range), false);
+});
+
 const hourlyInfo: WeeklySummaryEventInfo = {
   title: "Team Meeting",
   meetingType: "hourly",
@@ -178,7 +190,7 @@ test("a removed line strikes through the whole line and labels it removed", () =
 
 test("a new mid-week line is tagged, not struck through", () => {
   const line = renderNewLine(hourlyInfo);
-  assert.match(line, /^🆕 \*New:\*/);
+  assert.match(line, /^🆕 _New_/);
   assert.doesNotMatch(line, /~/);
 });
 
