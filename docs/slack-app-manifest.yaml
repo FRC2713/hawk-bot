@@ -1,0 +1,69 @@
+# Paste at https://api.slack.com/apps -> Create New App -> From an app manifest.
+# Replace hawk-bot.example.org with PUBLIC_URL everywhere it appears.
+#
+# This is a SEPARATE Slack app from Hawk Mod. They share a workspace and a
+# host, nothing else: different credentials, different scopes, different
+# database. Do not add hawk-bot's command to Hawk Mod's manifest.
+#
+# The icon is not part of a manifest and has to be uploaded by hand, once:
+# Basic Information -> Display Information -> App icon, with
+# assets/hawk-bot-icon.svg exported to PNG. Slack keeps it across later
+# manifest edits.
+display_information:
+  name: Hawk Bot
+  description: Team assistant for Red Hawk Robotics
+  long_description: >-
+    Hawk Bot is FRC 2713's team assistant in Slack. It answers slash commands,
+    keeps a small amount of workspace configuration, and posts what the coaches
+    ask it to post. It acts only as itself: it holds no permission to read
+    anyone's direct messages, and requests no user tokens.
+  background_color: "#ba0c2f"
+
+features:
+  bot_user:
+    display_name: Hawk Bot
+    always_online: true
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: false
+    messages_tab_read_only_enabled: true
+  slash_commands:
+    - command: /hawk
+      url: https://hawk-bot.example.org/slack/events
+      description: Team assistant — help, status, settings
+      usage_hint: help | status | whoami | config
+      should_escape: true
+
+oauth_config:
+  redirect_urls:
+    - https://hawk-bot.example.org/slack/oauth_redirect
+  scopes:
+    # Keep identical to BOT_SCOPES in src/slack/app.ts.
+    bot:
+      - commands
+      - chat:write
+      # Posts to a public channel the bot has not been invited to.
+      - chat:write.public
+      - app_mentions:read
+      - im:write
+      # Resolves whether someone is a workspace Owner or Admin, which is the
+      # whole of this app's authorization model.
+      - users:read
+      - team:read
+      - channels:read
+      - groups:read
+    # Deliberately none. Hawk Bot never acts on a person's behalf.
+
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: https://hawk-bot.example.org/slack/events
+  event_subscriptions:
+    request_url: https://hawk-bot.example.org/slack/events
+    bot_events:
+      - app_home_opened
+      - app_mention
+      - app_uninstalled
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

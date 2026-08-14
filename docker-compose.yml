@@ -1,0 +1,60 @@
+# hawk-bot — the Red Hawk Robotics team assistant for Slack.
+#
+# This file is for running hawk-bot on its own, on a laptop, against a Slack
+# app of your own. The team's real deployment is hawk_suite, which runs this
+# image behind Caddy alongside hawk-shop and hawk-mod:
+# https://github.com/FRC2713/hawk_suite
+#
+# It must be reachable from the PUBLIC internet: Slack delivers slash commands,
+# events, and the OAuth redirect from its own servers, over HTTPS, to
+# PUBLIC_URL. A private or VPN-only hostname will not work — see docs/deploy.md
+# for the tunnel trick that makes a laptop reachable.
+services:
+  hawk-bot:
+    build: .
+    # Or pull the image built by .github/workflows/docker.yml:
+    # image: ghcr.io/frc2713/hawk-bot:latest
+    container_name: hawk-bot
+    restart: unless-stopped
+    environment:
+      # --- Slack app credentials (required) --------------------------------
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET:?set SLACK_SIGNING_SECRET in .env}
+      SLACK_CLIENT_ID: ${SLACK_CLIENT_ID:?set SLACK_CLIENT_ID in .env}
+      SLACK_CLIENT_SECRET: ${SLACK_CLIENT_SECRET:?set SLACK_CLIENT_SECRET in .env}
+      SLACK_STATE_SECRET: ${SLACK_STATE_SECRET:?generate with `openssl rand -hex 32`}
+
+      # --- Deployment ------------------------------------------------------
+      # Public HTTPS base URL. Must match the app manifest's request and
+      # redirect URLs exactly, or Slack will not deliver anything.
+      PUBLIC_URL: ${PUBLIC_URL:?e.g. https://hawk-bot.example.org}
+      PORT: 3000
+
+      # --- Storage ---------------------------------------------------------
+      DATA_DIR: /data
+      # Encrypts the stored workspace installation, which carries the bot
+      # token: openssl rand -base64 32. Losing it costs one reinstall by an
+      # admin; leaking it hands over the bot token.
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:?generate with `openssl rand -base64 32`}
+
+      TZ: ${TZ:-America/New_York}
+    volumes:
+      - hawk-bot-data:/data
+    ports:
+      # Safe to publish here because this file is the standalone/laptop path.
+      # In hawk_suite the app publishes nothing and Caddy fronts it.
+      - "${PORT:-3000}:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  hawk-bot-data:

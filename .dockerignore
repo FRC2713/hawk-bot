@@ -1,0 +1,13 @@
+.git
+.github
+node_modules
+dist
+data
+docs
+*.md
+!README.md
+.env
+.env.*
+!.env.example
+.DS_Store
+*.tsbuildinfo
