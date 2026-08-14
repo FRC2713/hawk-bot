@@ -1,0 +1,55 @@
+# Hawk Bot
+
+The Red Hawk Robotics team assistant for Slack — see `CLAUDE.md` for the technical shape. This file is the glossary for concepts that live in the domain, not the code.
+
+## Language
+
+**Event**:
+A scheduled team activity that people are expected to attend and that carries scheduled hours toward attendance credit. Has a title, date/time, location, and description. Every Event has a Meeting Type, derived from its date/time shape. v1 sources Events from the Team Meeting Calendar only, one-for-one with that calendar's entries — an Event becomes real the instant a mentor creates it there, no approval step.
+
+**Team Meeting Calendar**:
+The Google Calendar mentors use to create, edit, and delete team meetings directly — the source of truth for Events. Mentors manage it in Google Calendar itself, not in Slack (in-Slack event management is a future upgrade); Hawk Bot reads it and reflects changes automatically.
+
+**Informational Calendar** / **Mentor/Teacher Calendar**:
+Two other calendars the team keeps: Informational (placeholder/FYI dates, school closures — visible to everyone, no action needed) and Mentor/Teacher (adult-only unavailability and admin meetings). Neither feeds Attendance Tracking in v1 — only the Team Meeting Calendar does. Pulling from them is a future upgrade.
+
+**Meeting Type**:
+Classifies an Event by its time shape, and determines the Check-in Post timing rule applied to it. Derived directly from the calendar entry's own start/end, not chosen separately:
+- **Hourly** — fixed start and end time on a single day (e.g. 10am–2pm).
+- **All-Day** — a full-day calendar entry where start date = end date.
+- **Multi-Day** — a full-day calendar entry spanning a start date and a later end date (e.g. a competition). Deferred — not handled by v1.
+_Avoid_: "event type"
+
+**Event Check-in Post**:
+The single Slack message posted before an Event that both reminds the team of it and serves as the surface people react to for attendance. Includes the Event's title, date/time, location, description, and a short reminder of what each reaction means. Posted to the announcements channel with an `@channel` mention. The bot pre-populates it with 👍, a Clock Reaction, and ❌ so a team member can just click an existing reaction rather than pick their own emoji from scratch; picking something else entirely still works and is read the same way. The bot deletes it at the Reaction Cutoff, which finalizes attendance for that Event.
+_Avoid_: pre-event reminder post, check-in post (as if separate from the reminder)
+
+**Check-in Post Timing**:
+How long before an Event its Check-in Post goes out. Set per Meeting Type (not per individual Event) by Hawk Bot admins. Starting defaults: Hourly posts 4 hours before the scheduled start; All-Day posts at 4pm the day before.
+
+**Calendar Change Handling**:
+What happens when the Team Meeting Calendar changes after an Event's Check-in Post has already gone out. The original post is never deleted or reposted for an edit — the Event record behind it is simply updated (including a duration change), and any reactions already collected carry forward unchanged. What the bot does depends on the kind of change:
+- **Edited** (any field — time, duration, location, description, etc.): reply in a thread on the original Check-in Post, broadcast to the channel (Slack's "also send to channel"), listing what changed. The original post's own text is left as originally written; the correction lives in the thread.
+- **Removed**: reply in the thread the same way, announcing the cancellation, *and* edit the original post's text in place to say the meeting has been removed — so the cancellation is visible even to someone who never opens the thread. No Reaction Cutoff runs and no hours are credited for a removed Event.
+
+**Reaction Cutoff**:
+The moment the bot deletes an Event's Check-in Post, freezing whatever reaction state existed at that instant as final for that Event. Immediately before deleting, the bot re-fetches the post's live reactions from Slack and reconciles them against its own running tally, so the frozen state matches what people actually see on the message, not just what the bot's event stream caught. Default: midnight of the event day — unless the Event's scheduled end time is at or after midnight, in which case the cutoff moves to 10am the next morning.
+
+**Attending / Not Attending / No Response**:
+The three attendance outcomes for a team member on an Event, fixed at the Reaction Cutoff. Attending means a 👍 (any skin tone) reaction is present — full scheduled-hours credit, regardless of what else is also on the post. Not Attending means at least one reaction is present but no 👍. No Response means no reaction at all.
+_Avoid_: "coming" / "not coming" — use Attending / Not Attending
+
+**Clock Reaction**:
+Any clock-face, alarm-clock, or stopwatch emoji reaction on an Event Check-in Post, used to flag an expected late arrival or early departure. Purely informational — it never confers Attending on its own; only a 👍 does. If a Clock Reaction lands without a 👍 from the same person, the bot DMs them a nudge with a link back to the post, since without a 👍 they'll otherwise land in Not Attending despite meaning to attend late.
+
+**Attendance Note**:
+An optional free-text detail a team member adds by replying in the thread on the Event Check-in Post — e.g. an expected arrival time alongside a Clock Reaction, or a reason alongside a Not Attending reaction. The bot never prompts for it; a thread reply during the reaction window is captured if one shows up, and it's fine if it doesn't.
+
+**Roster**:
+The set of people an Event expects a response from. Currently defined as the announcements channel's membership list at the moment the Event Check-in Post is sent — there is no maintained team list yet. This is a known interim definition; it's expected to be replaced by an explicit external list of students and mentors.
+
+**Season**:
+The reporting window "attendance %" and hours-credited figures default to. Fixed at July 1 through the following June 30 for now, not admin-configurable — a known interim rule, expected to become adjustable later. "This season" means the most recent July 1 up to now.
+
+**Attendance Reporting**:
+v1 has exactly two reporting surfaces; everything else the original spec sketched (per-event breakdowns, no-response lists, a leaderboard) is explicitly deferred to a later feature. A team member's own Season attendance %/hours is self-serve, open to anyone — it's their own data. A full CSV export of the whole team's Season attendance is admin-only and delivered by DM to whoever ran it, never posted into a channel — a bulk export of everyone's data is a different exposure than a personal lookup.
