@@ -7,8 +7,7 @@
 #
 # The icon is not part of a manifest and has to be uploaded by hand, once:
 # Basic Information -> Display Information -> App icon, with
-# assets/hawk-bot-icon.svg exported to PNG. Slack keeps it across later
-# manifest edits.
+# assets/hawk-bot-icon-512.png. Slack keeps it across later manifest edits.
 display_information:
   name: Hawk Bot
   description: Team assistant for Red Hawk Robotics

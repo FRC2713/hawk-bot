@@ -41,10 +41,10 @@ export const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 51
     <path d="M450.8,231.89c85,59.87,148.97,83.71,177.98,93.07l17.09-91.26-195.07-1.81Z"/>
     <path d="M660.77,331.42h108.57l22.59-126.23h115.98l-21.85,126.23h108.57l21.66-126.23v-5.6c-1.12-12.35-6.31-23.97-14.75-33.05,13.45-9.34,25.13-25.56,29.82-41.25h-332.74l-37.85,206.13h0Z"/>
   </g>
-  <path d="M172 232 v-34" fill="none" stroke="${BRAND.cream}" stroke-width="20" stroke-linecap="round"/>
-  <circle cx="172" cy="192" r="16" fill="${BRAND.cream}"/>
-  <rect x="100" y="240" width="144" height="128" rx="28" fill="${BRAND.cream}"/>
-  <circle cx="140" cy="298" r="15" fill="${BRAND.red}"/>
-  <circle cx="204" cy="298" r="15" fill="${BRAND.red}"/>
-  <path d="M138 336 h68" fill="none" stroke="${BRAND.red}" stroke-width="18" stroke-linecap="round"/>
+  <rect x="104" y="240" width="148" height="140" rx="30" fill="${BRAND.cream}"/>
+  <rect x="86" y="288" width="18" height="44" rx="9" fill="${BRAND.cream}"/>
+  <rect x="252" y="288" width="18" height="44" rx="9" fill="${BRAND.cream}"/>
+  <circle cx="146" cy="296" r="16" fill="${BRAND.red}"/>
+  <circle cx="210" cy="296" r="16" fill="${BRAND.red}"/>
+  <path d="M146 342 h64" fill="none" stroke="${BRAND.red}" stroke-width="18" stroke-linecap="round"/>
 </svg>`;
