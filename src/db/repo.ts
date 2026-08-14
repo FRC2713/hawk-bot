@@ -544,3 +544,129 @@ export function getTeamSeasonOutcomes(
   }
   return byUser;
 }
+
+/* --------------------------------------------------------- weekly summary */
+
+/** Every non-removed Event starting in range, any Meeting Type — for the Weekly Summary listing. */
+export function listEventsStartingInRange(
+  startIso: string,
+  endIso: string
+): EventRow[] {
+  return db()
+    .prepare<[string, string], EventRow>(
+      `SELECT * FROM events
+       WHERE removed_at IS NULL AND starts_at >= ? AND starts_at < ?
+       ORDER BY starts_at`
+    )
+    .all(startIso, endIso);
+}
+
+export type WeeklySummaryRow = {
+  id: number;
+  channel: string;
+  message_ts: string;
+  week_start: string;
+  week_end: string;
+  posted_at: string;
+};
+
+export function insertWeeklySummary(args: {
+  channel: string;
+  messageTs: string;
+  weekStart: string;
+  weekEnd: string;
+}): number {
+  const result = db()
+    .prepare(
+      `INSERT INTO weekly_summaries (channel, message_ts, week_start, week_end, posted_at)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    .run(args.channel, args.messageTs, args.weekStart, args.weekEnd, nowIso());
+  return Number(result.lastInsertRowid);
+}
+
+/** The currently-active Weekly Summary Post, if one has ever been sent. */
+export function getMostRecentWeeklySummary(): WeeklySummaryRow | undefined {
+  return db()
+    .prepare<[], WeeklySummaryRow>(
+      "SELECT * FROM weekly_summaries ORDER BY posted_at DESC LIMIT 1"
+    )
+    .get();
+}
+
+export type WeeklySummaryItemRow = {
+  weekly_summary_id: number;
+  event_id: number;
+  snapshot_title: string;
+  snapshot_meeting_type: MeetingTypeRow;
+  snapshot_starts_at: string;
+  snapshot_ends_at: string;
+  snapshot_location: string;
+  added_mid_week: number;
+  removed: number;
+};
+
+export type NewWeeklySummaryItem = {
+  weeklySummaryId: number;
+  eventId: number;
+  snapshotTitle: string;
+  snapshotMeetingType: MeetingTypeRow;
+  snapshotStartsAt: string;
+  snapshotEndsAt: string;
+  snapshotLocation: string;
+  addedMidWeek: boolean;
+};
+
+/** Snapshots an Event's details as first shown in this Weekly Summary Post — Change Reflection always diffs against this, never the previous edit. */
+export function insertWeeklySummaryItem(item: NewWeeklySummaryItem): void {
+  db()
+    .prepare(
+      `INSERT INTO weekly_summary_items
+         (weekly_summary_id, event_id, snapshot_title, snapshot_meeting_type,
+          snapshot_starts_at, snapshot_ends_at, snapshot_location, added_mid_week)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      item.weeklySummaryId,
+      item.eventId,
+      item.snapshotTitle,
+      item.snapshotMeetingType,
+      item.snapshotStartsAt,
+      item.snapshotEndsAt,
+      item.snapshotLocation,
+      item.addedMidWeek ? 1 : 0
+    );
+}
+
+export function getWeeklySummaryItem(
+  weeklySummaryId: number,
+  eventId: number
+): WeeklySummaryItemRow | undefined {
+  return db()
+    .prepare<[number, number], WeeklySummaryItemRow>(
+      "SELECT * FROM weekly_summary_items WHERE weekly_summary_id = ? AND event_id = ?"
+    )
+    .get(weeklySummaryId, eventId);
+}
+
+/** Every item on a Weekly Summary Post — the rebuild-from-scratch source when reflecting a change. */
+export function listWeeklySummaryItems(
+  weeklySummaryId: number
+): WeeklySummaryItemRow[] {
+  return db()
+    .prepare<[number], WeeklySummaryItemRow>(
+      "SELECT * FROM weekly_summary_items WHERE weekly_summary_id = ?"
+    )
+    .all(weeklySummaryId);
+}
+
+export function markWeeklySummaryItemRemoved(
+  weeklySummaryId: number,
+  eventId: number
+): void {
+  db()
+    .prepare(
+      "UPDATE weekly_summary_items SET removed = 1 WHERE weekly_summary_id = ? AND event_id = ?"
+    )
+    .run(weeklySummaryId, eventId);
+}
