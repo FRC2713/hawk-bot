@@ -25,12 +25,12 @@ better-sqlite3. One container, one volume.
 It is the sibling of [hawk-mod](https://github.com/FRC2713/hawk-mod), and the
 difference is the thing to hold onto:
 
-| | hawk-mod | hawk-bot |
-| --- | --- | --- |
-| Slack app | its own | **a separate one** |
-| User tokens | yes, per adult — the whole point | **none, ever** |
-| Reads DMs | yes, that is the product | no |
-| Stores | consent records, minors' message text | an install token, a few settings |
+|             | hawk-mod                              | hawk-bot                         |
+| ----------- | ------------------------------------- | -------------------------------- |
+| Slack app   | its own                               | **a separate one**               |
+| User tokens | yes, per adult — the whole point      | **none, ever**                   |
+| Reads DMs   | yes, that is the product              | no                               |
+| Stores      | consent records, minors' message text | an install token, a few settings |
 
 Both are deployed by [hawk_suite](https://github.com/FRC2713/hawk_suite), which
 routes `mod.<domain>` and `bot.<domain>` to them. Deployment questions belong
@@ -101,7 +101,7 @@ nothing in the suite — Caddy fronts it.
 
 1. **No user scopes.** Ever. This app is in a workspace shared with minors and
    its defensibility rests on being unable to read anything a person could not
-   see it read. Adding a user scope changes what this app *is*.
+   see it read. Adding a user scope changes what this app _is_.
 2. **Never log message text or a token.** `logger.ts` writes JSON to stderr and
    that is not an auditable place.
 3. **Migrations that have shipped are never edited.** Add another file.

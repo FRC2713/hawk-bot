@@ -23,13 +23,13 @@ servers, over HTTPS**, to `PUBLIC_URL`. So:
 ## 1. The Slack app
 
 Create it from [`slack-app-manifest.yaml`](slack-app-manifest.yaml) at
-<https://api.slack.com/apps> → *Create New App* → *From an app manifest*,
+<https://api.slack.com/apps> → _Create New App_ → _From an app manifest_,
 replacing `hawk-bot.example.org` throughout.
 
 This is a **separate app** from Hawk Mod even in the same workspace. Two apps,
 two sets of credentials, two databases. Do not merge the manifests.
 
-Copy the Signing Secret, Client ID, and Client Secret from *Basic Information*.
+Copy the Signing Secret, Client ID, and Client Secret from _Basic Information_.
 
 ## 2. The environment
 

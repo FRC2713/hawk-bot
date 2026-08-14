@@ -3,7 +3,7 @@
 Hawk Bot is FRC 2713 Red Hawk Robotics' team assistant in Slack: one slash
 command, `/hawk`, behind which the team's own tooling accumulates.
 
-It is deliberately the *public* bot of the pair. Its sibling
+It is deliberately the _public_ bot of the pair. Its sibling
 [hawk-mod](https://github.com/FRC2713/hawk-mod) exists to watch direct messages
 for youth protection, and everything about it — user tokens, encrypted message
 text, a private findings channel — follows from that. Hawk Bot asks for **no
@@ -15,12 +15,12 @@ Run by [hawk_suite](https://github.com/FRC2713/hawk_suite) at
 
 ## What it does today
 
-| Command | Who | What |
-| --- | --- | --- |
-| `/hawk help` | anyone | Lists every command |
-| `/hawk status` | anyone | Uptime, install state, how much is configured |
+| Command        | Who    | What                                             |
+| -------------- | ------ | ------------------------------------------------ |
+| `/hawk help`   | anyone | Lists every command                              |
+| `/hawk status` | anyone | Uptime, install state, how much is configured    |
 | `/hawk whoami` | anyone | Your Slack id, and whether you count as an admin |
-| `/hawk config` | admins | Show or change workspace settings |
+| `/hawk config` | admins | Show or change workspace settings                |
 
 Plus an App Home tab that renders itself from the same command list, and a
 reply when someone @-mentions the bot pointing them at `/hawk help`.
