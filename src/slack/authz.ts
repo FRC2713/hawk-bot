@@ -1,31 +1,62 @@
 import type { WebClient } from "@slack/web-api";
+import { getSetting } from "../db/repo.js";
+import { isHawkBotAdmin as decideHawkBotAdmin } from "../domain/authorization.js";
 import { log } from "../logger.js";
 
+const TTL_MS = 5 * 60 * 1000;
+
 /**
- * Authority comes from Slack, not from a list in this app.
- *
- * The workspace already knows who runs the team — Owners and Admins are the
- * people the coaches actually trust with it. A second roster here would be one
- * more thing to keep current, and the failure mode of a stale one is someone
- * still holding a permission after they have left.
+ * The HawkBot Admin group's member ids, for whichever group `admin_usergroup`
+ * currently resolves to. Keyed by group id rather than a single slot, so
+ * changing the setting is a cache miss rather than something that needs
+ * explicit invalidation.
  */
-export async function isWorkspaceAdmin(
+let groupCache: { groupId: string; memberIds: Set<string>; at: number } | null =
+  null;
+
+async function groupMemberIds(
+  client: WebClient,
+  groupId: string
+): Promise<Set<string>> {
+  if (
+    groupCache &&
+    groupCache.groupId === groupId &&
+    Date.now() - groupCache.at < TTL_MS
+  ) {
+    return groupCache.memberIds;
+  }
+  try {
+    const res = await client.usergroups.users.list({ usergroup: groupId });
+    const memberIds = new Set(res.users ?? []);
+    groupCache = { groupId, memberIds, at: Date.now() };
+    return memberIds;
+  } catch (error) {
+    // Stale-but-cached beats "everyone locked out because Slack hiccupped".
+    if (groupCache?.groupId === groupId) return groupCache.memberIds;
+    log.warn("could not resolve HawkBot Admin group membership", {
+      groupId,
+      error: String(error),
+    });
+    return new Set();
+  }
+}
+
+const ownerCache = new Map<string, { value: boolean; at: number }>();
+
+async function isWorkspaceOwner(
   client: WebClient,
   userId: string
 ): Promise<boolean> {
-  const cached = cache.get(userId);
+  const cached = ownerCache.get(userId);
   if (cached && Date.now() - cached.at < TTL_MS) return cached.value;
   try {
     const res = await client.users.info({ user: userId });
     const u = res.user;
-    const value = Boolean(u?.is_admin || u?.is_owner || u?.is_primary_owner);
-    cache.set(userId, { value, at: Date.now() });
+    const value = Boolean(u?.is_owner || u?.is_primary_owner);
+    ownerCache.set(userId, { value, at: Date.now() });
     return value;
   } catch (error) {
-    // Denying on error is the safe direction, but it presents as "the bot
-    // ignored me", so say why in the log — the usual cause is a missing
-    // `users:read` scope after a manifest edit.
-    log.warn("could not resolve admin status", {
+    log.warn("could not resolve workspace Owner status", {
       userId,
       error: String(error),
     });
@@ -33,11 +64,63 @@ export async function isWorkspaceAdmin(
   }
 }
 
-const TTL_MS = 5 * 60 * 1000;
-const cache = new Map<string, { value: boolean; at: number }>();
+/**
+ * Authority for every admin-gated capability. Membership in the
+ * `admin_usergroup` setting's Slack User Group grants it; a workspace Owner
+ * always has it too, regardless of the group's state — see ADR-0004 and
+ * CONTEXT.md, HawkBot Admin. The actual decision is domain/authorization.ts;
+ * this just gathers the two inputs it needs from Slack.
+ */
+export async function isHawkBotAdmin(
+  client: WebClient,
+  userId: string
+): Promise<boolean> {
+  const groupId = getSetting("admin_usergroup");
+  const [memberIds, owner] = await Promise.all([
+    groupId
+      ? groupMemberIds(client, groupId)
+      : Promise.resolve(new Set<string>()),
+    isWorkspaceOwner(client, userId),
+  ]);
+  return decideHawkBotAdmin({
+    userId,
+    groupMemberIds: memberIds,
+    isWorkspaceOwner: owner,
+  });
+}
 
-/** Test seam, and what a role change calls so it takes effect immediately. */
+/** Test seam, and what a role/group change calls so it takes effect immediately. */
 export function forgetAdminStatus(userId?: string): void {
-  if (userId) cache.delete(userId);
-  else cache.clear();
+  if (userId) ownerCache.delete(userId);
+  else ownerCache.clear();
+  groupCache = null;
+}
+
+async function listWorkspaceOwners(client: WebClient): Promise<string[]> {
+  try {
+    const res = await client.users.list({});
+    return (res.members ?? [])
+      .filter((u) => u.is_owner || u.is_primary_owner)
+      .map((u) => u.id)
+      .filter((id): id is string => Boolean(id));
+  } catch (error) {
+    log.warn("could not list workspace Owners", { error: String(error) });
+    return [];
+  }
+}
+
+/**
+ * Every HawkBot Admin, for the Reaction Cutoff Verification failure DM —
+ * every one of them gets notified, not just a single designated recipient.
+ * See CONTEXT.md, Reaction Cutoff Verification.
+ */
+export async function listHawkBotAdmins(client: WebClient): Promise<string[]> {
+  const groupId = getSetting("admin_usergroup");
+  const [memberIds, owners] = await Promise.all([
+    groupId
+      ? groupMemberIds(client, groupId)
+      : Promise.resolve(new Set<string>()),
+    listWorkspaceOwners(client),
+  ]);
+  return [...new Set([...memberIds, ...owners])];
 }

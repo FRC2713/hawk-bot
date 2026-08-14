@@ -1,11 +1,49 @@
 import { SLASH_COMMAND } from "../brand.js";
-import { getSetting, insertEvent } from "../db/repo.js";
+import {
+  clearVerificationFailed,
+  getEvent,
+  getSetting,
+  insertEvent,
+} from "../db/repo.js";
 import {
   checkinPostTime,
   reactionCutoff,
   resolveCheckinOffsets,
 } from "../domain/calendar.js";
+import { attemptEventCutoff } from "../scheduler.js";
 import type { Command } from "./types.js";
+
+async function runRetryCutoff(
+  ctx: Parameters<Command["run"]>[0]
+): Promise<{ text: string }> {
+  const idStr = ctx.args[1];
+  const id = idStr ? Number(idStr) : NaN;
+  if (!idStr || Number.isNaN(id)) {
+    return { text: `Usage: \`${SLASH_COMMAND} event retry-cutoff <id>\`` };
+  }
+
+  const existing = getEvent(id);
+  if (!existing) return { text: `No Event #${id}.` };
+  if (!existing.verification_failed_at) {
+    return {
+      text: `Event #${id} hasn't failed Reaction Cutoff Verification — nothing to retry.`,
+    };
+  }
+
+  clearVerificationFailed(id);
+  const refreshed = getEvent(id);
+  if (!refreshed) return { text: `Event #${id} disappeared mid-retry.` };
+
+  const result = await attemptEventCutoff(ctx.client, ctx.botUserId, refreshed);
+  if (result.ok) {
+    return { text: `Event #${id} finalized successfully.` };
+  }
+  const why =
+    result.reason === "resync_failed"
+      ? "the resync failed again"
+      : `${result.missingUserIds.length} user(s) are still missing`;
+  return { text: `Retry failed again for Event #${id}: ${why}.` };
+}
 
 /**
  * Test/dev fixture only — see ADR-0002. The Team Meeting Calendar is the
@@ -15,11 +53,17 @@ import type { Command } from "./types.js";
 export const event: Command = {
   name: "event",
   summary:
-    "Create a test Event by hand — dev/test only, never for real meetings",
-  usage: "event create <title>|<start ISO>|<end ISO>|[location]",
+    "Create a test Event by hand, or retry a failed Reaction Cutoff Verification",
+  usage:
+    "event create <title>|<start ISO>|<end ISO>|[location] | event retry-cutoff <id>",
   adminOnly: true,
   async run(ctx) {
     const [verb] = ctx.args;
+
+    if (verb?.toLowerCase() === "retry-cutoff") {
+      return runRetryCutoff(ctx);
+    }
+
     if (verb?.toLowerCase() !== "create") {
       return { text: `Usage: \`${SLASH_COMMAND} ${event.usage}\`` };
     }

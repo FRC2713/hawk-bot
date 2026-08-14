@@ -23,13 +23,20 @@ import { openDirectMessage } from "./dm.js";
  * reaction state, rather than diffing add/remove events incrementally.
  * Simpler, self-correcting, and it's the same code path the Reaction
  * Cutoff's final reconciliation pass uses — see CONTEXT.md, Reaction Cutoff.
+ *
+ * Returns everyone's current reaction names (excluding the bot's own), and
+ * throws rather than swallowing a Slack API failure — both are what
+ * Reaction Cutoff Verification and the Event Attendance Report need from a
+ * resync: who has a qualifying reaction, and what they actually reacted with.
  */
 export async function syncAttendanceFromSlack(
   client: WebClient,
   event: EventRow,
   botUserId: string
-): Promise<void> {
-  if (!event.checkin_channel || !event.checkin_message_ts) return;
+): Promise<{ reactions: Map<string, string[]> }> {
+  if (!event.checkin_channel || !event.checkin_message_ts) {
+    return { reactions: new Map() };
+  }
 
   const result = await client.reactions.get({
     channel: event.checkin_channel,
@@ -72,6 +79,8 @@ export async function syncAttendanceFromSlack(
     await sendLateNudge(client, event, userId);
     markNudged(event.id, userId);
   }
+
+  return { reactions: byUser };
 }
 
 async function sendLateNudge(

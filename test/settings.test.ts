@@ -4,6 +4,7 @@ import {
   SETTINGS,
   checkSetting,
   unwrapChannel,
+  unwrapUserGroupHandle,
 } from "../src/domain/settings.js";
 
 test("an unknown key is refused, and the message names the known ones", () => {
@@ -61,4 +62,34 @@ test("default All-Day hours is a positive number, fractional allowed", () => {
   assert.equal(checkSetting("default_all_day_hours", "6.5").ok, true);
   assert.equal(checkSetting("default_all_day_hours", "0").ok, false);
   assert.equal(checkSetting("default_all_day_hours", "-2").ok, false);
+});
+
+test("the attendance report channel is a channel id like any other channel setting", () => {
+  assert.equal(
+    checkSetting("attendance_report_channel", "C0123456789").ok,
+    true
+  );
+  assert.equal(checkSetting("attendance_report_channel", "#general").ok, false);
+});
+
+test("the admin usergroup accepts a plain handle, with or without a leading @", () => {
+  assert.equal(checkSetting("admin_usergroup", "hawkbot-admins").ok, true);
+  const result = checkSetting("admin_usergroup", "@hawkbot-admins");
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value, "hawkbot-admins");
+});
+
+test("Slack's escaped usergroup mention is unwrapped to the bare handle", () => {
+  assert.equal(
+    unwrapUserGroupHandle("<!subteam^S0123456|@hawkbot-admins>"),
+    "hawkbot-admins"
+  );
+  const result = checkSetting(
+    "admin_usergroup",
+    "<!subteam^S0123456|@hawkbot-admins>"
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value, "hawkbot-admins");
 });

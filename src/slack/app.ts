@@ -27,8 +27,8 @@ export const BOT_SCOPES = [
   // Opens Hawk Bot's own DM with someone, for replies that do not belong in
   // the channel they were asked in.
   "im:write",
-  // Resolves whether someone is a workspace Owner or Admin. That is the whole
-  // of this app's authorization model; see slack/authz.ts.
+  // Resolves whether someone is a workspace Owner, the fallback half of the
+  // HawkBot Admin authorization model; see slack/authz.ts.
   "users:read",
   "team:read",
   "channels:read",
@@ -41,6 +41,10 @@ export const BOT_SCOPES = [
   "channels:history",
   "groups:history",
   "files:write",
+  // HawkBot Admin: resolving the admin_usergroup setting's handle to a
+  // group id, and reading that group's membership. The other half of the
+  // authorization model, alongside the Owner check above.
+  "usergroups:read",
 ];
 
 export function createApp(): App {

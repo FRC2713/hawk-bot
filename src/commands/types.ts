@@ -23,6 +23,8 @@ export type CommandContext = {
   /** Everything after the subcommand name, verbatim. */
   rest: string;
   client: WebClient;
+  /** Hawk Bot's own Slack user id — so a reaction-resyncing command can exclude it. */
+  botUserId: string;
   /**
    * Resolved against Slack, lazily and at most once per invocation. A command
    * that only wants to *show* whether you are an admin should not pay for an
@@ -43,9 +45,10 @@ export type Command = {
   /** Argument shape, shown when the command is misused. */
   usage?: string;
   /**
-   * Refused for anyone who is not a Slack workspace admin or owner. Authority
-   * comes from Slack rather than from a list in this app: the workspace
-   * already knows who runs the team, and a second list would drift.
+   * Refused for anyone who isn't a HawkBot Admin — membership in the Slack
+   * User Group the `admin_usergroup` setting names, or a workspace Owner
+   * (always, regardless of the group's state). See ADR-0004 and
+   * CONTEXT.md, HawkBot Admin.
    */
   adminOnly?: boolean;
   run: (ctx: CommandContext) => Promise<CommandReply>;

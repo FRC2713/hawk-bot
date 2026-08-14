@@ -16,7 +16,9 @@ export type SettingKey =
   | "google_calendar_id"
   | "checkin_offset_hourly_hours"
   | "checkin_offset_allday_time"
-  | "default_all_day_hours";
+  | "default_all_day_hours"
+  | "attendance_report_channel"
+  | "admin_usergroup";
 
 export type Setting = {
   key: SettingKey;
@@ -72,6 +74,23 @@ export const SETTINGS: readonly Setting[] = [
       return v.trim().length > 0 && Number.isFinite(n) && n > 0;
     },
   },
+  {
+    key: "attendance_report_channel",
+    summary:
+      "Private channel the Event Attendance Report posts to after each Event's cutoff",
+    expects: "a channel id like C0123456789 (not the #name)",
+    validate: (v) => CHANNEL_ID.test(v.trim()),
+  },
+  {
+    key: "admin_usergroup",
+    summary:
+      "The Slack User Group whose members are HawkBot Admins (workspace Owners always are too)",
+    expects: "a user group handle, e.g. hawkbot-admins (with or without the @)",
+    // Format only — this doesn't confirm the group actually exists. That
+    // live lookup (handle -> Slack's internal group id) happens as an I/O
+    // step in commands/config.ts, which is what actually gets stored.
+    validate: (v) => /^[a-zA-Z0-9_-]{1,80}$/.test(v.trim()),
+  },
 ];
 
 export function findSetting(key: string): Setting | undefined {
@@ -95,9 +114,11 @@ export function checkSetting(key: string, value: string): SettingCheck {
   if (!trimmed) {
     return { ok: false, reason: `\`${setting.key}\` needs ${setting.expects}` };
   }
-  // Slack turns a typed `#general` into `<#C0123|general>` when the command is
-  // escaped. Unwrap it rather than telling a coach their own channel is wrong.
-  const unwrapped = unwrapChannel(trimmed);
+  // Slack turns a typed `#general` into `<#C0123|general>`, and a typed
+  // `@handle` into `<!subteam^S0123|@handle>`, when the command is escaped.
+  // Unwrap either rather than telling a coach their own channel/group is
+  // wrong. Both are no-ops for a value that doesn't match their pattern.
+  const unwrapped = unwrapUserGroupHandle(unwrapChannel(trimmed));
   if (!setting.validate(unwrapped)) {
     return {
       ok: false,
@@ -111,4 +132,17 @@ export function checkSetting(key: string, value: string): SettingCheck {
 export function unwrapChannel(value: string): string {
   const match = /^<#([CG][A-Z0-9]+)(\|[^>]*)?>$/.exec(value.trim());
   return match?.[1] ?? value.trim();
+}
+
+/**
+ * `<!subteam^S0123|@hawkbot-admins>` → `hawkbot-admins`; a plain `@handle`
+ * has its `@` stripped; anything else is returned as is. This is the
+ * *handle*, not the group's Slack-internal id — resolving handle to id is
+ * a live lookup, done as an I/O step in commands/config.ts.
+ */
+export function unwrapUserGroupHandle(value: string): string {
+  const trimmed = value.trim();
+  const escaped = /^<!subteam\^[A-Z0-9]+\|@?([^>]+)>$/.exec(trimmed);
+  if (escaped?.[1]) return escaped[1];
+  return trimmed.replace(/^@/, "");
 }
