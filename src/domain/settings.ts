@@ -10,7 +10,13 @@
  * Pure data and pure functions — no database, no Slack client — so the rules
  * are testable without either.
  */
-export type SettingKey = "announce_channel" | "timezone_note";
+export type SettingKey =
+  | "announce_channel"
+  | "timezone_note"
+  | "google_calendar_id"
+  | "checkin_offset_hourly_hours"
+  | "checkin_offset_allday_time"
+  | "default_all_day_hours";
 
 export type Setting = {
   key: SettingKey;
@@ -35,6 +41,36 @@ export const SETTINGS: readonly Setting[] = [
     summary: "Free text shown on the App Home, e.g. meeting nights",
     expects: "any text up to 200 characters",
     validate: (v) => v.trim().length > 0 && v.trim().length <= 200,
+  },
+  {
+    key: "google_calendar_id",
+    summary: "The Team Meeting Calendar's id — the source of truth for Events",
+    expects: "a Google Calendar id, e.g. team@group.calendar.google.com",
+    validate: (v) => v.trim().length > 0 && v.trim().length <= 200,
+  },
+  {
+    key: "checkin_offset_hourly_hours",
+    summary:
+      "How many hours before an Hourly meeting its Check-in Post goes out",
+    expects: "a whole number of hours, e.g. 4",
+    validate: (v) => /^\d+$/.test(v.trim()) && Number(v.trim()) > 0,
+  },
+  {
+    key: "checkin_offset_allday_time",
+    summary:
+      "What time, the day before, an All-Day meeting's Check-in Post goes out",
+    expects: "a 24-hour time HH:MM, e.g. 16:00",
+    validate: (v) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(v.trim()),
+  },
+  {
+    key: "default_all_day_hours",
+    summary:
+      "Hours credited for an All-Day meeting, since it has no scheduled start/end time",
+    expects: "a positive number of hours, e.g. 8",
+    validate: (v) => {
+      const n = Number(v.trim());
+      return v.trim().length > 0 && Number.isFinite(n) && n > 0;
+    },
   },
 ];
 
