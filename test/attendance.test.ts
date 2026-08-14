@@ -8,6 +8,7 @@ import {
   isClockReaction,
   isThumbsUpReaction,
   needsLateNudge,
+  resolveAllDayHours,
   toAttendanceCsv,
 } from "../src/domain/attendance.js";
 
@@ -122,4 +123,9 @@ test("CSV export escapes fields that contain commas or quotes", () => {
     "user_id,display_name,attending,not_attending,no_response,attendance_percent,hours_credited"
   );
   assert.match(lines[1] ?? "", /^U1,"Ada, Lovelace",4,1,0,80,10$/);
+});
+
+test("default All-Day hours falls back to the starting default until set", () => {
+  assert.equal(resolveAllDayHours(undefined), 8);
+  assert.equal(resolveAllDayHours("6.5"), 6.5);
 });

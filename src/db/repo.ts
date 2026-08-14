@@ -446,14 +446,21 @@ export type PersonEventOutcome = {
   hoursCredited: number | null;
 };
 
+// source = 'google_calendar' keeps manual_test Events (see ADR-0002) out of
+// every real report and export.
+const SEASON_OUTCOMES_WHERE = `
+  WHERE e.removed_at IS NULL AND e.finalized_at IS NOT NULL
+    AND e.source = 'google_calendar'
+    AND e.meeting_type IN ('hourly', 'all_day')
+    AND e.starts_at >= ? AND e.starts_at < ?
+`;
+
 const SEASON_OUTCOMES_SQL = `
   SELECT e.meeting_type, a.status, a.hours_credited
   FROM events e
   JOIN event_roster r ON r.event_id = e.id AND r.user_id = ?
   LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = r.user_id
-  WHERE e.removed_at IS NULL AND e.finalized_at IS NOT NULL
-    AND e.meeting_type IN ('hourly', 'all_day')
-    AND e.starts_at >= ? AND e.starts_at < ?
+  ${SEASON_OUTCOMES_WHERE}
 `;
 
 /** Every finalized Event in range this person's Roster included them on. */
@@ -498,9 +505,7 @@ export function getTeamSeasonOutcomes(
        FROM events e
        JOIN event_roster r ON r.event_id = e.id
        LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = r.user_id
-       WHERE e.removed_at IS NULL AND e.finalized_at IS NOT NULL
-         AND e.meeting_type IN ('hourly', 'all_day')
-         AND e.starts_at >= ? AND e.starts_at < ?`
+       ${SEASON_OUTCOMES_WHERE}`
     )
     .all(startIso, endIso);
 

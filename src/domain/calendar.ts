@@ -133,6 +133,32 @@ export const DEFAULT_CHECKIN_OFFSETS: CheckinPostOffsets = {
   allDayMinute: 0,
 };
 
+/**
+ * Turns the raw `checkin_offset_hourly_hours`/`checkin_offset_allday_time`
+ * setting strings (see domain/settings.ts) into offsets, falling back to
+ * DEFAULT_CHECKIN_OFFSETS for whichever isn't set. The one place this rule
+ * is applied — the scheduler and the manual test-event command both read
+ * settings via the same I/O, then call this so they can't drift apart.
+ */
+export function resolveCheckinOffsets(
+  hourlyHoursSetting: string | undefined,
+  allDayTimeSetting: string | undefined
+): CheckinPostOffsets {
+  const [allDayHour, allDayMinute] = allDayTimeSetting
+    ? allDayTimeSetting.split(":").map(Number)
+    : [
+        DEFAULT_CHECKIN_OFFSETS.allDayHour,
+        DEFAULT_CHECKIN_OFFSETS.allDayMinute,
+      ];
+  return {
+    hourlyHoursBefore: hourlyHoursSetting
+      ? Number(hourlyHoursSetting)
+      : DEFAULT_CHECKIN_OFFSETS.hourlyHoursBefore,
+    allDayHour: allDayHour ?? DEFAULT_CHECKIN_OFFSETS.allDayHour,
+    allDayMinute: allDayMinute ?? DEFAULT_CHECKIN_OFFSETS.allDayMinute,
+  };
+}
+
 export function checkinPostTime(
   event: { meetingType: CalendarMeetingType; startsAt: Date },
   offsets: CheckinPostOffsets

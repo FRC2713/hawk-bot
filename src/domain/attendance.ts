@@ -66,6 +66,11 @@ export type MeetingType = "hourly" | "all_day";
 /** Starting default, used until a Hawk Bot admin sets `default_all_day_hours`. */
 export const DEFAULT_ALL_DAY_HOURS = 8;
 
+/** Turns the raw `default_all_day_hours` setting string into a number. */
+export function resolveAllDayHours(setting: string | undefined): number {
+  return setting ? Number(setting) : DEFAULT_ALL_DAY_HOURS;
+}
+
 export function hoursCredited(args: {
   meetingType: MeetingType;
   startsAt: Date;

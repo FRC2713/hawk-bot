@@ -5,6 +5,7 @@ import {
   diffEvent,
   mapCalendarEvent,
   reactionCutoff,
+  resolveCheckinOffsets,
 } from "../src/domain/calendar.js";
 
 // Midnight/day-before math reads wall-clock dates via local Date methods,
@@ -137,4 +138,25 @@ test("no change is reported as unchanged", () => {
   const previous = mapCalendarEvent(hourlyRaw);
   const current = mapCalendarEvent(hourlyRaw);
   assert.deepEqual(diffEvent(previous, current), { kind: "unchanged" });
+});
+
+test("unset Check-in Post Timing settings fall back to the starting defaults", () => {
+  assert.deepEqual(resolveCheckinOffsets(undefined, undefined), {
+    hourlyHoursBefore: 4,
+    allDayHour: 16,
+    allDayMinute: 0,
+  });
+});
+
+test("a set Check-in Post Timing overrides only the setting that was set", () => {
+  assert.deepEqual(resolveCheckinOffsets("2", undefined), {
+    hourlyHoursBefore: 2,
+    allDayHour: 16,
+    allDayMinute: 0,
+  });
+  assert.deepEqual(resolveCheckinOffsets(undefined, "09:30"), {
+    hourlyHoursBefore: 4,
+    allDayHour: 9,
+    allDayMinute: 30,
+  });
 });

@@ -1,15 +1,15 @@
 import { WebClient } from "@slack/web-api";
 import {
-  DEFAULT_ALL_DAY_HOURS,
   hoursCredited,
+  resolveAllDayHours,
   type MeetingType,
 } from "./domain/attendance.js";
 import {
-  DEFAULT_CHECKIN_OFFSETS,
   checkinPostTime,
   diffEvent,
   mapCalendarEvent,
   reactionCutoff,
+  resolveCheckinOffsets,
   type CheckinPostOffsets,
   type MappedEvent,
 } from "./domain/calendar.js";
@@ -55,26 +55,14 @@ function currentInstallation(): Installed | undefined {
 }
 
 function checkinOffsets(): CheckinPostOffsets {
-  const hourly = getSetting("checkin_offset_hourly_hours");
-  const allday = getSetting("checkin_offset_allday_time");
-  const [allDayHour, allDayMinute] = allday
-    ? allday.split(":").map(Number)
-    : [
-        DEFAULT_CHECKIN_OFFSETS.allDayHour,
-        DEFAULT_CHECKIN_OFFSETS.allDayMinute,
-      ];
-  return {
-    hourlyHoursBefore: hourly
-      ? Number(hourly)
-      : DEFAULT_CHECKIN_OFFSETS.hourlyHoursBefore,
-    allDayHour: allDayHour ?? DEFAULT_CHECKIN_OFFSETS.allDayHour,
-    allDayMinute: allDayMinute ?? DEFAULT_CHECKIN_OFFSETS.allDayMinute,
-  };
+  return resolveCheckinOffsets(
+    getSetting("checkin_offset_hourly_hours"),
+    getSetting("checkin_offset_allday_time")
+  );
 }
 
 function defaultAllDayHours(): number {
-  const setting = getSetting("default_all_day_hours");
-  return setting ? Number(setting) : DEFAULT_ALL_DAY_HOURS;
+  return resolveAllDayHours(getSetting("default_all_day_hours"));
 }
 
 function toMappedEvent(row: EventRow): MappedEvent {

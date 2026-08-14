@@ -6,6 +6,7 @@ import {
   toAttendanceCsv,
   type AttendanceCsvRow,
 } from "../domain/attendance.js";
+import { openDirectMessage } from "../slack/dm.js";
 import type { Command } from "./types.js";
 
 type Outcome = {
@@ -109,8 +110,7 @@ export const report: Command = {
         });
       }
 
-      const dm = await ctx.client.conversations.open({ users: ctx.userId });
-      const dmChannel = dm.channel?.id;
+      const dmChannel = await openDirectMessage(ctx.client, ctx.userId);
       if (!dmChannel) {
         return { text: "Couldn't open a DM to send the export — try again?" };
       }

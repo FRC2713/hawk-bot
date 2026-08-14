@@ -1,9 +1,9 @@
 import { SLASH_COMMAND } from "../brand.js";
-import { insertEvent } from "../db/repo.js";
+import { getSetting, insertEvent } from "../db/repo.js";
 import {
-  DEFAULT_CHECKIN_OFFSETS,
   checkinPostTime,
   reactionCutoff,
+  resolveCheckinOffsets,
 } from "../domain/calendar.js";
 import type { Command } from "./types.js";
 
@@ -40,6 +40,11 @@ export const event: Command = {
       };
     }
 
+    const offsets = resolveCheckinOffsets(
+      getSetting("checkin_offset_hourly_hours"),
+      getSetting("checkin_offset_allday_time")
+    );
+
     const id = insertEvent({
       calendarEventId: null,
       source: "manual_test",
@@ -51,7 +56,7 @@ export const event: Command = {
       endsAt: endsAt.toISOString(),
       checkinAt: checkinPostTime(
         { meetingType: "hourly", startsAt },
-        DEFAULT_CHECKIN_OFFSETS
+        offsets
       ).toISOString(),
       reactionCutoffAt: reactionCutoff({
         meetingType: "hourly",

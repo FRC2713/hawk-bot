@@ -16,6 +16,7 @@ import {
   type EventRow,
 } from "../db/repo.js";
 import { log } from "../logger.js";
+import { openDirectMessage } from "./dm.js";
 
 /**
  * Rebuilds every attendance row for an Event from Slack's own current
@@ -86,8 +87,7 @@ async function sendLateNudge(
     })
     .catch(() => undefined);
   const link = permalink?.permalink;
-  const dm = await client.conversations.open({ users: userId });
-  const dmChannel = dm.channel?.id;
+  const dmChannel = await openDirectMessage(client, userId);
   if (!dmChannel) return;
   await client.chat.postMessage({
     channel: dmChannel,
@@ -131,8 +131,11 @@ export function registerAttendanceEvents(app: App): void {
     await syncAttendanceFromSlack(client, row, context.botUserId ?? "");
   });
 
-  app.event("message", async ({ event }) => {
+  app.event("message", async ({ event, context }) => {
     if (!isThreadReply(event)) return;
+    // Otherwise the bot's own Calendar Change Handling replies ("this
+    // meeting changed...") get captured as if a person had left them.
+    if (event.user === context.botUserId) return;
     const row = getEventByCheckinMessage(
       (event as { channel: string }).channel,
       event.thread_ts
