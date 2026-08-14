@@ -55,3 +55,17 @@ The reporting window "attendance %" and hours-credited figures default to. Fixed
 
 **Attendance Reporting**:
 v1 has exactly two reporting surfaces; everything else the original spec sketched (per-event breakdowns, no-response lists, a leaderboard) is explicitly deferred to a later feature. A team member's own Season attendance %/hours is self-serve, open to anyone — it's their own data. A full CSV export of the whole team's Season attendance is admin-only and delivered by DM to whoever ran it, never posted into a channel — a bulk export of everyone's data is a different exposure than a personal lookup.
+
+**Reaction Cutoff Verification**:
+Immediately after the Reaction Cutoff's live resync and immediately before deleting the Check-in Post, the bot checks two things: the resync's Slack API calls completed without error, and every person with a qualifying reaction on the message has a matching attendance record. If either check fails, the bot does **not** delete the post or finalize the Event — it records the failure, DMs every HawkBot Admin, and leaves the Event alone. Nothing retries automatically; an admin has to explicitly re-run the cutoff for that Event once whatever went wrong is understood.
+
+**Event Attendance Report**:
+Posted to a private `#hawkbot-attendance-report`-style channel (exact channel is an admin-configurable setting) immediately after an Event successfully clears its Reaction Cutoff and its Check-in Post is deleted — one report per Event, never batched. Kept short in the channel itself:
+
+- **Top-level message**: the Event's name, the Attending/Not Attending/No Response counts, and the hours the Event was worth per attendee (e.g. "12 attending (2 hrs each) · 3 not attending · 2 no response") — not a summed grand total, since every Attending person on one Event is credited the same hours.
+- **Threaded reply**: a monospace table, one row per person — Name, derived Status (Attending/Not Attending/No Response), the raw reaction(s) they left, and their Attendance Note if any. Showing derived Status alongside the raw reactions means a reader doesn't need to know the 👍-wins-regardless precedence rule by heart.
+
+No link out to another surface — the detail lives entirely inside the thread reply.
+
+**HawkBot Admin**:
+Replaces "Slack workspace Owner/Admin" as the authorization model for every admin-gated capability (`/hawk config`, `/hawk event create`, the season CSV export, and the Reaction Cutoff Verification failure DM) — full replacement, not an additional either/or check. Defined by membership in a dedicated Slack User Group — not Slack's built-in Admins group — so a team can grant bot-admin duties (mentors, team leads) without handing out full Slack workspace administration. An admin configures it by handle (e.g. `hawkbot-admins`); the bot resolves that to the group's Slack-internal id once, at set-time, and checks membership against the id from then on. Slack workspace Owners always retain HawkBot Admin rights regardless of the group's state, as a bootstrap/lockout safety net — otherwise an empty or unconfigured group would mean nobody could run the command needed to fix it. Group membership is cached (same 5-minute-TTL shape as the old per-user admin cache), rather than looked up per check.
