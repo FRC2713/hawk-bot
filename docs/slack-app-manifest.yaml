@@ -29,8 +29,8 @@ features:
   slash_commands:
     - command: /hawk
       url: https://hawk-bot.example.org/slack/events
-      description: Team assistant — help, status, settings
-      usage_hint: help | status | whoami | config
+      description: Team assistant — help, status, settings, attendance
+      usage_hint: help | status | whoami | config | report | event
       should_escape: true
 
 oauth_config:
@@ -51,6 +51,13 @@ oauth_config:
       - team:read
       - channels:read
       - groups:read
+      # Attendance Tracking: reactions on an Event Check-in Post, thread
+      # replies for the Attendance Note, and the season CSV export DM.
+      - reactions:read
+      - reactions:write
+      - channels:history
+      - groups:history
+      - files:write
     # Deliberately none. Hawk Bot never acts on a person's behalf.
 
 settings:
@@ -63,6 +70,12 @@ settings:
       - app_home_opened
       - app_mention
       - app_uninstalled
+      # Attendance Tracking: live reaction tracking and the nudge, and
+      # capturing thread replies as an Attendance Note.
+      - reaction_added
+      - reaction_removed
+      - message.channels
+      - message.groups
   org_deploy_enabled: false
   socket_mode_enabled: false
   token_rotation_enabled: false

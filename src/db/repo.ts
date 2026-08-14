@@ -134,3 +134,385 @@ export function listSettings(): SettingRow[] {
     .prepare<[], SettingRow>("SELECT * FROM settings ORDER BY key")
     .all();
 }
+
+/* ------------------------------------------------------------------ events */
+
+export type MeetingTypeRow = "hourly" | "all_day" | "multi_day";
+export type EventSource = "google_calendar" | "manual_test";
+
+export type EventRow = {
+  id: number;
+  calendar_event_id: string | null;
+  source: EventSource;
+  title: string;
+  description: string;
+  location: string;
+  meeting_type: MeetingTypeRow;
+  starts_at: string;
+  ends_at: string;
+  checkin_at: string;
+  reaction_cutoff_at: string;
+  checkin_channel: string | null;
+  checkin_message_ts: string | null;
+  checkin_posted_at: string | null;
+  finalized_at: string | null;
+  removed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type NewEvent = {
+  calendarEventId: string | null;
+  source: EventSource;
+  title: string;
+  description: string;
+  location: string;
+  meetingType: MeetingTypeRow;
+  startsAt: string;
+  endsAt: string;
+  checkinAt: string;
+  reactionCutoffAt: string;
+};
+
+export function insertEvent(event: NewEvent): number {
+  const now = nowIso();
+  const result = db()
+    .prepare(
+      `INSERT INTO events (calendar_event_id, source, title, description, location,
+                            meeting_type, starts_at, ends_at, checkin_at, reaction_cutoff_at,
+                            created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      event.calendarEventId,
+      event.source,
+      event.title,
+      event.description,
+      event.location,
+      event.meetingType,
+      event.startsAt,
+      event.endsAt,
+      event.checkinAt,
+      event.reactionCutoffAt,
+      now,
+      now
+    );
+  return Number(result.lastInsertRowid);
+}
+
+/** Everything a calendar sync might change about an already-known Event. */
+export function updateEventFromCalendar(
+  id: number,
+  patch: Omit<NewEvent, "calendarEventId" | "source">
+): void {
+  const now = nowIso();
+  db()
+    .prepare(
+      `UPDATE events SET
+         title = ?, description = ?, location = ?, meeting_type = ?,
+         starts_at = ?, ends_at = ?, checkin_at = ?, reaction_cutoff_at = ?,
+         updated_at = ?
+       WHERE id = ?`
+    )
+    .run(
+      patch.title,
+      patch.description,
+      patch.location,
+      patch.meetingType,
+      patch.startsAt,
+      patch.endsAt,
+      patch.checkinAt,
+      patch.reactionCutoffAt,
+      now,
+      id
+    );
+}
+
+export function getEventByCalendarId(
+  calendarEventId: string
+): EventRow | undefined {
+  return db()
+    .prepare<[string], EventRow>(
+      "SELECT * FROM events WHERE calendar_event_id = ?"
+    )
+    .get(calendarEventId);
+}
+
+export function getEvent(id: number): EventRow | undefined {
+  return db()
+    .prepare<[number], EventRow>("SELECT * FROM events WHERE id = ?")
+    .get(id);
+}
+
+/** Resolves a reaction or thread-reply event back to the Event it's on. */
+export function getEventByCheckinMessage(
+  channel: string,
+  messageTs: string
+): EventRow | undefined {
+  return db()
+    .prepare<[string, string], EventRow>(
+      "SELECT * FROM events WHERE checkin_channel = ? AND checkin_message_ts = ?"
+    )
+    .get(channel, messageTs);
+}
+
+/** A removed Event runs no Reaction Cutoff and credits no hours. */
+export function markEventRemoved(id: number): void {
+  const now = nowIso();
+  db()
+    .prepare("UPDATE events SET removed_at = ?, updated_at = ? WHERE id = ?")
+    .run(now, now, id);
+}
+
+export function markCheckinPosted(
+  id: number,
+  channel: string,
+  messageTs: string
+): void {
+  const now = nowIso();
+  db()
+    .prepare(
+      `UPDATE events SET
+         checkin_channel = ?, checkin_message_ts = ?, checkin_posted_at = ?, updated_at = ?
+       WHERE id = ?`
+    )
+    .run(channel, messageTs, now, now, id);
+}
+
+export function markEventFinalized(id: number): void {
+  const now = nowIso();
+  db()
+    .prepare("UPDATE events SET finalized_at = ?, updated_at = ? WHERE id = ?")
+    .run(now, now, id);
+}
+
+export function listEventsDueForCheckin(nowIsoStr: string): EventRow[] {
+  return db()
+    .prepare<[string], EventRow>(
+      `SELECT * FROM events
+       WHERE checkin_posted_at IS NULL AND removed_at IS NULL
+         AND meeting_type != 'multi_day' AND checkin_at <= ?`
+    )
+    .all(nowIsoStr);
+}
+
+export function listEventsDueForCutoff(nowIsoStr: string): EventRow[] {
+  return db()
+    .prepare<[string], EventRow>(
+      `SELECT * FROM events
+       WHERE checkin_posted_at IS NOT NULL AND finalized_at IS NULL
+         AND removed_at IS NULL AND reaction_cutoff_at <= ?`
+    )
+    .all(nowIsoStr);
+}
+
+/* ----------------------------------------------------------------- roster */
+
+/** Snapshots who the Check-in Post's channel included at the moment it posted. */
+export function snapshotRoster(
+  eventId: number,
+  userIds: readonly string[]
+): void {
+  const insert = db().prepare(
+    "INSERT OR IGNORE INTO event_roster (event_id, user_id) VALUES (?, ?)"
+  );
+  db().transaction((ids: readonly string[]) => {
+    for (const userId of ids) insert.run(eventId, userId);
+  })(userIds);
+}
+
+export function getRoster(eventId: number): string[] {
+  return db()
+    .prepare<[number], { user_id: string }>(
+      "SELECT user_id FROM event_roster WHERE event_id = ?"
+    )
+    .all(eventId)
+    .map((r) => r.user_id);
+}
+
+/* ------------------------------------------------------------- attendance */
+
+export type AttendanceRow = {
+  event_id: number;
+  user_id: string;
+  status: "attending" | "not_attending" | null;
+  has_clock_reaction: number;
+  note: string | null;
+  hours_credited: number | null;
+  nudged_at: string | null;
+  updated_at: string;
+};
+
+/** Written by a reaction resync — see slack/reactions.ts. */
+export function upsertAttendanceReaction(
+  eventId: number,
+  userId: string,
+  status: "attending" | "not_attending",
+  hasClockReaction: boolean
+): void {
+  const now = nowIso();
+  db()
+    .prepare(
+      `INSERT INTO attendance (event_id, user_id, status, has_clock_reaction, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (event_id, user_id) DO UPDATE SET
+         status = excluded.status,
+         has_clock_reaction = excluded.has_clock_reaction,
+         updated_at = excluded.updated_at`
+    )
+    .run(eventId, userId, status, hasClockReaction ? 1 : 0, now);
+}
+
+/**
+ * The person removed every reaction. Their Attendance Note, if any, is left
+ * alone — only a reaction resync ever touches status/has_clock_reaction.
+ */
+export function clearAttendanceReaction(eventId: number, userId: string): void {
+  const now = nowIso();
+  db()
+    .prepare(
+      `INSERT INTO attendance (event_id, user_id, status, has_clock_reaction, updated_at)
+       VALUES (?, ?, NULL, 0, ?)
+       ON CONFLICT (event_id, user_id) DO UPDATE SET
+         status = NULL, has_clock_reaction = 0, updated_at = excluded.updated_at`
+    )
+    .run(eventId, userId, now);
+}
+
+export function setAttendanceNote(
+  eventId: number,
+  userId: string,
+  note: string
+): void {
+  const now = nowIso();
+  db()
+    .prepare(
+      `INSERT INTO attendance (event_id, user_id, note, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT (event_id, user_id) DO UPDATE SET
+         note = excluded.note, updated_at = excluded.updated_at`
+    )
+    .run(eventId, userId, note, now);
+}
+
+/** Snapshotted once at Reaction Cutoff finalize time — see migrations/0002. */
+export function setHoursCredited(
+  eventId: number,
+  userId: string,
+  hours: number
+): void {
+  db()
+    .prepare(
+      "UPDATE attendance SET hours_credited = ? WHERE event_id = ? AND user_id = ?"
+    )
+    .run(hours, eventId, userId);
+}
+
+export function wasNudged(eventId: number, userId: string): boolean {
+  const row = db()
+    .prepare<[number, string], { nudged_at: string | null }>(
+      "SELECT nudged_at FROM attendance WHERE event_id = ? AND user_id = ?"
+    )
+    .get(eventId, userId);
+  return row?.nudged_at != null;
+}
+
+/** One-shot per person per Event — see domain/attendance.ts, needsLateNudge. */
+export function markNudged(eventId: number, userId: string): void {
+  const now = nowIso();
+  db()
+    .prepare(
+      `INSERT INTO attendance (event_id, user_id, has_clock_reaction, nudged_at, updated_at)
+       VALUES (?, ?, 1, ?, ?)
+       ON CONFLICT (event_id, user_id) DO UPDATE SET
+         nudged_at = excluded.nudged_at, updated_at = excluded.updated_at`
+    )
+    .run(eventId, userId, now, now);
+}
+
+export function getAttendanceForEvent(eventId: number): AttendanceRow[] {
+  return db()
+    .prepare<[number], AttendanceRow>(
+      "SELECT * FROM attendance WHERE event_id = ?"
+    )
+    .all(eventId);
+}
+
+/* -------------------------------------------------------------- reporting */
+
+export type PersonEventOutcome = {
+  meetingType: MeetingTypeRow;
+  status: "attending" | "not_attending" | null;
+  hoursCredited: number | null;
+};
+
+const SEASON_OUTCOMES_SQL = `
+  SELECT e.meeting_type, a.status, a.hours_credited
+  FROM events e
+  JOIN event_roster r ON r.event_id = e.id AND r.user_id = ?
+  LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = r.user_id
+  WHERE e.removed_at IS NULL AND e.finalized_at IS NOT NULL
+    AND e.meeting_type IN ('hourly', 'all_day')
+    AND e.starts_at >= ? AND e.starts_at < ?
+`;
+
+/** Every finalized Event in range this person's Roster included them on. */
+export function getPersonSeasonOutcomes(
+  userId: string,
+  startIso: string,
+  endIso: string
+): PersonEventOutcome[] {
+  return db()
+    .prepare<
+      [string, string, string],
+      {
+        meeting_type: MeetingTypeRow;
+        status: "attending" | "not_attending" | null;
+        hours_credited: number | null;
+      }
+    >(SEASON_OUTCOMES_SQL)
+    .all(userId, startIso, endIso)
+    .map((r) => ({
+      meetingType: r.meeting_type,
+      status: r.status,
+      hoursCredited: r.hours_credited,
+    }));
+}
+
+/** The same, for every person who appears on any Roster in range — for export. */
+export function getTeamSeasonOutcomes(
+  startIso: string,
+  endIso: string
+): Map<string, PersonEventOutcome[]> {
+  const rows = db()
+    .prepare<
+      [string, string],
+      {
+        user_id: string;
+        meeting_type: MeetingTypeRow;
+        status: "attending" | "not_attending" | null;
+        hours_credited: number | null;
+      }
+    >(
+      `SELECT r.user_id, e.meeting_type, a.status, a.hours_credited
+       FROM events e
+       JOIN event_roster r ON r.event_id = e.id
+       LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = r.user_id
+       WHERE e.removed_at IS NULL AND e.finalized_at IS NOT NULL
+         AND e.meeting_type IN ('hourly', 'all_day')
+         AND e.starts_at >= ? AND e.starts_at < ?`
+    )
+    .all(startIso, endIso);
+
+  const byUser = new Map<string, PersonEventOutcome[]>();
+  for (const r of rows) {
+    const list = byUser.get(r.user_id) ?? [];
+    list.push({
+      meetingType: r.meeting_type,
+      status: r.status,
+      hoursCredited: r.hours_credited,
+    });
+    byUser.set(r.user_id, list);
+  }
+  return byUser;
+}

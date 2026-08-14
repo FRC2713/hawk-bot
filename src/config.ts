@@ -12,6 +12,11 @@ const schema = z.object({
   DATA_DIR: z.string().default("./data"),
   TOKEN_ENCRYPTION_KEY: z.string().min(1),
   TZ: z.string().default("America/New_York"),
+  // The Google service account's full JSON key file, base64-encoded so its
+  // embedded private key (which contains literal newlines) survives a .env
+  // file intact. Read-only access to the Team Meeting Calendar; the calendar
+  // id itself is a workspace setting, not a credential — see domain/settings.ts.
+  GOOGLE_SERVICE_ACCOUNT_KEY_BASE64: z.string().min(1),
 });
 
 export type Config = z.infer<typeof schema>;

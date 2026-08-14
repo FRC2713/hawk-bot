@@ -3,6 +3,7 @@ import { APP_NAME, BRAND, ICON_SVG, SLASH_COMMAND } from "../brand.js";
 import { config } from "../config.js";
 import { healthHandler } from "../health.js";
 import { log } from "../logger.js";
+import { registerAttendanceEvents } from "./attendanceEvents.js";
 import { registerCommands } from "./commands.js";
 import { registerEvents } from "./events.js";
 import { installationStore } from "./installStore.js";
@@ -32,6 +33,14 @@ export const BOT_SCOPES = [
   "team:read",
   "channels:read",
   "groups:read",
+  // Attendance Tracking: reading and pre-populating reactions on an Event
+  // Check-in Post, reading thread replies for the Attendance Note, and
+  // DMing a season CSV export.
+  "reactions:read",
+  "reactions:write",
+  "channels:history",
+  "groups:history",
+  "files:write",
 ];
 
 export function createApp(): App {
@@ -83,6 +92,7 @@ export function createApp(): App {
 
   registerCommands(app);
   registerEvents(app);
+  registerAttendanceEvents(app);
 
   app.error(async (error) => {
     log.error("bolt error", { error: String(error) });

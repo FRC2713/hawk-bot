@@ -1,5 +1,7 @@
 import { config } from "./config.js";
+import { event } from "./event.js";
 import { help } from "./help.js";
+import { report } from "./report.js";
 import { status } from "./status.js";
 import type { Command } from "./types.js";
 import { whoami } from "./whoami.js";
@@ -12,4 +14,11 @@ import { whoami } from "./whoami.js";
  * renders it, and the App Home reads it, so a new command is documented and
  * reachable the moment it is registered.
  */
-export const COMMANDS: readonly Command[] = [help, status, whoami, config];
+export const COMMANDS: readonly Command[] = [
+  help,
+  status,
+  whoami,
+  config,
+  report,
+  event,
+];
