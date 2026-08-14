@@ -113,3 +113,15 @@ nothing in the suite — Caddy fronts it.
    disagree the symptom is a command that silently does nothing.
 6. **`.env.example` documents every variable `config.ts` reads.** A missing one
    reads as "the feature is off".
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues on `frc2713/hawk-bot`, via the `gh` CLI. See
+`docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root, once they exist.
+See `docs/agents/domain.md`.
