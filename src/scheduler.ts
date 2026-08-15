@@ -91,6 +91,7 @@ function toMappedEvent(row: EventRow): MappedEvent {
     startsAt: new Date(row.starts_at),
     endsAt: new Date(row.ends_at),
     cancelled: false,
+    calendarLink: row.calendar_link,
   };
 }
 
@@ -127,6 +128,7 @@ async function syncCalendar(client: WebClient): Promise<void> {
       if (mapped.cancelled) continue;
       const newId = insertEvent({
         calendarEventId: mapped.calendarEventId,
+        calendarLink: mapped.calendarLink,
         source: "google_calendar",
         title: mapped.title,
         description: mapped.description,
@@ -158,6 +160,7 @@ async function syncCalendar(client: WebClient): Promise<void> {
 
     // edited
     updateEventFromCalendar(existing.id, {
+      calendarLink: mapped.calendarLink,
       title: mapped.title,
       description: mapped.description,
       location: mapped.location,
@@ -167,11 +170,15 @@ async function syncCalendar(client: WebClient): Promise<void> {
       checkinAt: checkinPostTime(mapped, offsets).toISOString(),
       reactionCutoffAt: reactionCutoff(mapped).toISOString(),
     });
-    if (existing.checkin_posted_at) {
-      await announceEventEdited(client, existing, change.changedFields);
-    }
     const updated = getEvent(existing.id);
-    if (updated) await reflectWeeklySummaryChange(client, updated, "changed");
+    if (updated) {
+      // Reads the just-updated row, not the stale pre-edit one, so the
+      // original post gets rewritten with the new details, not the old.
+      if (existing.checkin_posted_at) {
+        await announceEventEdited(client, updated, change.changedFields);
+      }
+      await reflectWeeklySummaryChange(client, updated, "changed");
+    }
   }
 }
 

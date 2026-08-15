@@ -143,6 +143,7 @@ export type EventSource = "google_calendar" | "manual_test";
 export type EventRow = {
   id: number;
   calendar_event_id: string | null;
+  calendar_link: string | null;
   source: EventSource;
   title: string;
   description: string;
@@ -164,6 +165,7 @@ export type EventRow = {
 
 export type NewEvent = {
   calendarEventId: string | null;
+  calendarLink: string | null;
   source: EventSource;
   title: string;
   description: string;
@@ -179,13 +181,14 @@ export function insertEvent(event: NewEvent): number {
   const now = nowIso();
   const result = db()
     .prepare(
-      `INSERT INTO events (calendar_event_id, source, title, description, location,
+      `INSERT INTO events (calendar_event_id, calendar_link, source, title, description, location,
                             meeting_type, starts_at, ends_at, checkin_at, reaction_cutoff_at,
                             created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       event.calendarEventId,
+      event.calendarLink,
       event.source,
       event.title,
       event.description,
@@ -210,12 +213,13 @@ export function updateEventFromCalendar(
   db()
     .prepare(
       `UPDATE events SET
-         title = ?, description = ?, location = ?, meeting_type = ?,
+         calendar_link = ?, title = ?, description = ?, location = ?, meeting_type = ?,
          starts_at = ?, ends_at = ?, checkin_at = ?, reaction_cutoff_at = ?,
          updated_at = ?
        WHERE id = ?`
     )
     .run(
+      patch.calendarLink,
       patch.title,
       patch.description,
       patch.location,

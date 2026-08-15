@@ -33,23 +33,32 @@ function strikethroughLines(text: string): string {
     .join("\n");
 }
 
-/** Title, when, where, and description — the part of the post worth keeping even once it's removed. */
-function meetingDetailsText(event: EventRow): string {
-  const lines = [`<!channel> *${event.title}*`, formatEventTime(event)];
+const REACTION_LEGEND = [
+  "",
+  "React to let the team know:",
+  "👍 — I'm coming",
+  "🕐 — I'm coming, but running late or leaving early (reply in this thread with details if you want)",
+  "❌, or anything else — I can't make it (reply in this thread with why, if you want)",
+];
+
+/**
+ * Title, when, where, and description — the part of the post worth keeping
+ * even once it's removed. `updateNote`, when given, marks the title line as
+ * edited (Calendar Change Handling's "edited" case rewrites the post with
+ * this rather than leaving it as originally written).
+ */
+function meetingDetailsText(event: EventRow, updateNote?: string): string {
+  const titleLine = updateNote
+    ? `<!channel> ✏️ *${event.title}* _(updated: ${updateNote})_`
+    : `<!channel> *${event.title}*`;
+  const lines = [titleLine, formatEventTime(event)];
   if (event.location) lines.push(`📍 ${event.location}`);
   if (event.description) lines.push(event.description);
   return lines.join("\n");
 }
 
 function checkinMessageText(event: EventRow): string {
-  return [
-    meetingDetailsText(event),
-    "",
-    "React to let the team know:",
-    "👍 — I'm coming",
-    "🕐 — I'm coming, but running late or leaving early (reply in this thread with details if you want)",
-    "❌, or anything else — I can't make it (reply in this thread with why, if you want)",
-  ].join("\n");
+  return [meetingDetailsText(event), ...REACTION_LEGEND].join("\n");
 }
 
 /**
@@ -89,8 +98,10 @@ export async function postCheckinPost(
 
 /**
  * Calendar Change Handling, the "edited" case: a threaded, channel-broadcast
- * reply listing what changed. The original post's text and every existing
- * reaction are left exactly as they were — see CONTEXT.md.
+ * reply naming what changed and linking straight to the calendar event,
+ * plus rewriting the original post itself with the new details — marked
+ * with an ✏️ and which fields changed, rather than left as originally
+ * written. Every existing reaction carries forward unchanged either way.
  */
 export async function announceEventEdited(
   client: WebClient,
@@ -98,11 +109,26 @@ export async function announceEventEdited(
   changedFields: readonly string[]
 ): Promise<void> {
   if (!event.checkin_channel || !event.checkin_message_ts) return;
+
+  const changedList = changedFields.join(", ");
+  const linkLine = event.calendar_link
+    ? `<${event.calendar_link}|View on the calendar>`
+    : undefined;
   await client.chat.postMessage({
     channel: event.checkin_channel,
     thread_ts: event.checkin_message_ts,
     reply_broadcast: true,
-    text: `📝 *${event.title}* changed: ${changedFields.join(", ")} updated. Check the calendar for the latest details.`,
+    text: [`📝 *${event.title}* changed: ${changedList} updated.`, linkLine]
+      .filter(Boolean)
+      .join("\n"),
+  });
+
+  await client.chat.update({
+    channel: event.checkin_channel,
+    ts: event.checkin_message_ts,
+    text: [meetingDetailsText(event, changedList), ...REACTION_LEGEND].join(
+      "\n"
+    ),
   });
 }
 

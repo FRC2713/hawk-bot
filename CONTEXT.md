@@ -31,8 +31,8 @@ How long before an Event its Check-in Post goes out. Set per Meeting Type (not p
 **Calendar Change Handling**:
 What happens when the Team Meeting Calendar changes after an Event's Check-in Post has already gone out. The original post is never deleted or reposted for an edit — the Event record behind it is simply updated (including a duration change), and any reactions already collected carry forward unchanged. What the bot does depends on the kind of change:
 
-- **Edited** (any field — time, duration, location, description, etc.): reply in a thread on the original Check-in Post, broadcast to the channel (Slack's "also send to channel"), listing what changed. The original post's own text is left as originally written; the correction lives in the thread.
-- **Removed**: reply in the thread the same way, announcing the cancellation, _and_ edit the original post's text in place to say the meeting has been removed — so the cancellation is visible even to someone who never opens the thread. No Reaction Cutoff runs and no hours are credited for a removed Event.
+- **Edited** (any field — time, duration, location, description, etc.): reply in a thread on the original Check-in Post, broadcast to the channel (Slack's "also send to channel"), naming what changed and linking straight to the calendar event — _and_ rewrite the original post itself with the new details, marked with an ✏️ and which fields changed, rather than leaving it as originally written.
+- **Removed**: reply in the thread the same way, announcing the cancellation, _and_ edit the original post's text in place — the removal notice up top, the meeting's details kept below it (struck through, not deleted, minus the now-irrelevant reaction legend) — so the cancellation is visible, with context, to someone who never opens the thread. No Reaction Cutoff runs and no hours are credited for a removed Event.
 
 **Reaction Cutoff**:
 The moment the bot deletes an Event's Check-in Post, freezing whatever reaction state existed at that instant as final for that Event. Immediately before deleting, the bot re-fetches the post's live reactions from Slack and reconciles them against its own running tally, so the frozen state matches what people actually see on the message, not just what the bot's event stream caught. Default: midnight of the event day — unless the Event's scheduled end time is at or after midnight, in which case the cutoff moves to 10am the next morning.
@@ -75,7 +75,7 @@ A single Slack message posted to the announcements channel at an admin-configura
 _Avoid_: "7-day summary" (ambiguous with a rolling window — see Weekly Summary Change Reflection)
 
 **Weekly Summary Change Reflection**:
-How the Weekly Summary Post stays accurate through the week it covers. Rather than a threaded reply (contrast with Calendar Change Handling), the summary message itself is edited in place:
+How the Weekly Summary Post stays accurate through the week it covers. Unlike Calendar Change Handling — which pairs a threaded, broadcast reply with rewriting the original post — this is in-place editing only, no thread and no broadcast:
 
 - **Edited Event**: the event's whole line is struck through, with a fresh line below giving the current details and a short "(updated: field, field)" tag — reusing the same changed-fields list Calendar Change Handling already computes. Always compares against the Event's state as first shown in _this week's_ summary, not a chain of every intermediate edit — a second edit before the week ends still shows one strikethrough (original vs. current), not two.
 - **Removed Event**: the line is struck through and labeled removed, staying visible rather than being deleted from the listing.
