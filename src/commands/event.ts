@@ -90,6 +90,7 @@ export const event: Command = {
 
     const id = insertEvent({
       calendarEventId: null,
+      calendarLink: null,
       source: "manual_test",
       title,
       description: "",

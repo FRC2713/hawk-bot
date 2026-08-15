@@ -61,6 +61,19 @@ export function needsLateNudge(emojiNames: readonly string[]): boolean {
   );
 }
 
+/**
+ * The same rule as needsLateNudge, re-derived from an already-resynced
+ * attendance row's status/has_clock_reaction instead of a live reaction
+ * list — what the nudge's delayed re-check reads, so confirming someone
+ * still lacks a 👍 doesn't need a second Slack fetch just to ask that.
+ */
+export function stillNeedsLateNudge(row: {
+  status: "attending" | "not_attending" | null;
+  hasClockReaction: boolean;
+}): boolean {
+  return row.status === "not_attending" && row.hasClockReaction;
+}
+
 export type MeetingType = "hourly" | "all_day";
 
 /** Starting default, used until a Hawk Bot admin sets `default_all_day_hours`. */
@@ -193,7 +206,9 @@ export type AttendanceReportRow = {
 /**
  * The Event Attendance Report's top-level channel message — kept to a
  * couple of lines. States hours per attendee, not a summed total, since
- * every Attending person on one Event is credited the same hours.
+ * every Attending person on one Event is credited the same hours. Past
+ * tense throughout — this posts after the Reaction Cutoff, once responses
+ * are locked, so it's reporting what happened, not what's expected to.
  */
 export function formatAttendanceReportSummary(args: {
   eventTitle: string;
@@ -207,13 +222,14 @@ export function formatAttendanceReportSummary(args: {
   const noResponse = args.rows.filter((r) => r.status === "no_response").length;
   return [
     `*${args.eventTitle}*`,
-    `${attending} attending (${args.hoursPerAttendee} hrs each) · ${notAttending} not attending · ${noResponse} no response`,
+    `${attending} attended (${args.hoursPerAttendee} hrs each) · ${notAttending} didn't attend · ${noResponse} no response`,
   ].join("\n");
 }
 
+/** Past tense, same reasoning as the summary above — reported after the fact. */
 const STATUS_LABEL: Record<AttendanceStatus, string> = {
-  attending: "Attending",
-  not_attending: "Not Attending",
+  attending: "Attended",
+  not_attending: "Didn't Attend",
   no_response: "No Response",
 };
 

@@ -31,8 +31,8 @@ How long before an Event its Check-in Post goes out. Set per Meeting Type (not p
 **Calendar Change Handling**:
 What happens when the Team Meeting Calendar changes after an Event's Check-in Post has already gone out. The original post is never deleted or reposted for an edit — the Event record behind it is simply updated (including a duration change), and any reactions already collected carry forward unchanged. What the bot does depends on the kind of change:
 
-- **Edited** (any field — time, duration, location, description, etc.): reply in a thread on the original Check-in Post, broadcast to the channel (Slack's "also send to channel"), listing what changed. The original post's own text is left as originally written; the correction lives in the thread.
-- **Removed**: reply in the thread the same way, announcing the cancellation, _and_ edit the original post's text in place to say the meeting has been removed — so the cancellation is visible even to someone who never opens the thread. No Reaction Cutoff runs and no hours are credited for a removed Event.
+- **Edited** (any field — time, duration, location, description, etc.): reply in a thread on the original Check-in Post, broadcast to the channel (Slack's "also send to channel"), naming what changed and linking straight to the calendar event — _and_ rewrite the original post itself with the new details, marked with an ✏️ and which fields changed, rather than leaving it as originally written.
+- **Removed**: reply in the thread the same way, announcing the cancellation, _and_ edit the original post's text in place — the removal notice up top, the meeting's details kept below it (struck through, not deleted, minus the now-irrelevant reaction legend) — so the cancellation is visible, with context, to someone who never opens the thread. No Reaction Cutoff runs and no hours are credited for a removed Event.
 
 **Reaction Cutoff**:
 The moment the bot deletes an Event's Check-in Post, freezing whatever reaction state existed at that instant as final for that Event. Immediately before deleting, the bot re-fetches the post's live reactions from Slack and reconciles them against its own running tally, so the frozen state matches what people actually see on the message, not just what the bot's event stream caught. Default: midnight of the event day — unless the Event's scheduled end time is at or after midnight, in which case the cutoff moves to 10am the next morning.
@@ -42,7 +42,7 @@ The three attendance outcomes for a team member on an Event, fixed at the Reacti
 _Avoid_: "coming" / "not coming" — use Attending / Not Attending
 
 **Clock Reaction**:
-Any clock-face, alarm-clock, or stopwatch emoji reaction on an Event Check-in Post, used to flag an expected late arrival or early departure. Purely informational — it never confers Attending on its own; only a 👍 does. If a Clock Reaction lands without a 👍 from the same person, the bot DMs them a nudge with a link back to the post, since without a 👍 they'll otherwise land in Not Attending despite meaning to attend late.
+Any clock-face, alarm-clock, or stopwatch emoji reaction on an Event Check-in Post, used to flag an expected late arrival or early departure. Purely informational — it never confers Attending on its own; only a 👍 does. If a Clock Reaction lands without a 👍 from the same person, the bot waits 30 seconds and checks again before DMing them a nudge with a link back to the post — long enough that reacting 🕐 then 👍 a moment later (a very ordinary way to mean "I'm coming, just late") never triggers a nudge that's already stale by the time it lands.
 
 **Attendance Note**:
 An optional free-text detail a team member adds by replying in the thread on the Event Check-in Post — e.g. an expected arrival time alongside a Clock Reaction, or a reason alongside a Not Attending reaction. The bot never prompts for it; a thread reply during the reaction window is captured if one shows up, and it's fine if it doesn't.
@@ -62,8 +62,8 @@ Immediately after the Reaction Cutoff's live resync and immediately before delet
 **Event Attendance Report**:
 Posted to a private `#hawkbot-attendance-report`-style channel (exact channel is an admin-configurable setting) immediately after an Event successfully clears its Reaction Cutoff and its Check-in Post is deleted — one report per Event, never batched. Kept short in the channel itself:
 
-- **Top-level message**: the Event's name, the Attending/Not Attending/No Response counts, and the hours the Event was worth per attendee (e.g. "12 attending (2 hrs each) · 3 not attending · 2 no response") — not a summed grand total, since every Attending person on one Event is credited the same hours.
-- **Threaded reply**: a monospace table, one row per person — Name, derived Status (Attending/Not Attending/No Response), the raw reaction(s) they left, and their Attendance Note if any. Showing derived Status alongside the raw reactions means a reader doesn't need to know the 👍-wins-regardless precedence rule by heart.
+- **Top-level message**: the Event's name, the Attending/Not Attending/No Response counts, and the hours the Event was worth per attendee (e.g. "12 attended (2 hrs each) · 3 didn't attend · 2 no response") — not a summed grand total, since every Attending person on one Event is credited the same hours. Past tense throughout, unlike the Attending/Not Attending/No Response terms elsewhere — this posts after the Reaction Cutoff, so it's reporting what happened, not describing a still-open response window.
+- **Threaded reply**: a monospace table, one row per person — Name, derived Status ("Attended"/"Didn't Attend"/"No Response", same past-tense reasoning), the raw reaction(s) they left, and their Attendance Note if any. Showing derived Status alongside the raw reactions means a reader doesn't need to know the 👍-wins-regardless precedence rule by heart.
 
 No link out to another surface — the detail lives entirely inside the thread reply.
 
@@ -75,7 +75,7 @@ A single Slack message posted to the announcements channel at an admin-configura
 _Avoid_: "7-day summary" (ambiguous with a rolling window — see Weekly Summary Change Reflection)
 
 **Weekly Summary Change Reflection**:
-How the Weekly Summary Post stays accurate through the week it covers. Rather than a threaded reply (contrast with Calendar Change Handling), the summary message itself is edited in place:
+How the Weekly Summary Post stays accurate through the week it covers. Unlike Calendar Change Handling — which pairs a threaded, broadcast reply with rewriting the original post — this is in-place editing only, no thread and no broadcast:
 
 - **Edited Event**: the event's whole line is struck through, with a fresh line below giving the current details and a short "(updated: field, field)" tag — reusing the same changed-fields list Calendar Change Handling already computes. Always compares against the Event's state as first shown in _this week's_ summary, not a chain of every intermediate edit — a second edit before the week ends still shows one strikethrough (original vs. current), not two.
 - **Removed Event**: the line is struck through and labeled removed, staying visible rather than being deleted from the listing.

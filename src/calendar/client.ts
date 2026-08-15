@@ -52,7 +52,8 @@ export async function fetchTeamCalendarEvents(
     orderBy: "startTime",
     timeMin: new Date(now.getTime() - LOOKBACK_MS).toISOString(),
     timeMax: new Date(now.getTime() + LOOKAHEAD_MS).toISOString(),
-    fields: "items(id,status,summary,description,location,start,end,updated)",
+    fields:
+      "items(id,status,summary,description,location,start,end,updated,htmlLink)",
   });
   const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${params}`;
 

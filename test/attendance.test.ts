@@ -11,6 +11,7 @@ import {
   isThumbsUpReaction,
   needsLateNudge,
   resolveAllDayHours,
+  stillNeedsLateNudge,
   toAttendanceCsv,
   verifyAttendanceCoverage,
   type AttendanceReportRow,
@@ -68,6 +69,28 @@ test("a clock reaction with no thumbs up needs a nudge; paired with thumbs up it
   assert.equal(needsLateNudge(["+1", "clock3"]), false);
   assert.equal(needsLateNudge(["+1"]), false);
   assert.equal(needsLateNudge(["x"]), false);
+});
+
+test("the delayed nudge re-check agrees with needsLateNudge, from an attendance row instead of a live reaction list", () => {
+  assert.equal(
+    stillNeedsLateNudge({ status: "not_attending", hasClockReaction: true }),
+    true
+  );
+  // Thumbs up landed since — status flipped to attending.
+  assert.equal(
+    stillNeedsLateNudge({ status: "attending", hasClockReaction: true }),
+    false
+  );
+  // Clock reaction removed since.
+  assert.equal(
+    stillNeedsLateNudge({ status: "not_attending", hasClockReaction: false }),
+    false
+  );
+  // Every reaction removed since.
+  assert.equal(
+    stillNeedsLateNudge({ status: null, hasClockReaction: false }),
+    false
+  );
 });
 
 test("hourly hours credited is the scheduled duration", () => {
@@ -203,7 +226,7 @@ test("the report summary states counts and hours-per-attendee, not a summed tota
   });
   assert.equal(
     summary,
-    "*Team Meeting*\n2 attending (2 hrs each) · 1 not attending · 1 no response"
+    "*Team Meeting*\n2 attended (2 hrs each) · 1 didn't attend · 1 no response"
   );
 });
 
@@ -220,7 +243,7 @@ test("the report table shows one aligned row per person, with a placeholder for 
   const table = formatAttendanceReportTable(rows);
   assert.match(table, /^```\n/);
   assert.match(table, /\n```$/);
-  assert.match(table, /Ada\s+Attending\s+\+1/);
+  assert.match(table, /Ada\s+Attended\s+\+1/);
   assert.match(table, /Barbara\s+No Response\s+—/);
 });
 
@@ -234,7 +257,7 @@ test("the report table appends a person's Attendance Note when they left one", (
     },
   ];
   const table = formatAttendanceReportTable(rows);
-  assert.match(table, /Alan\s+Not Attending\s+x\s+sick/);
+  assert.match(table, /Alan\s+Didn't Attend\s+x\s+sick/);
 });
 
 test("an empty roster renders a placeholder instead of an empty table", () => {

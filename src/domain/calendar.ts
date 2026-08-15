@@ -21,6 +21,8 @@ export type RawCalendarEvent = {
   location?: string;
   start: { date?: string; dateTime?: string };
   end: { date?: string; dateTime?: string };
+  /** Google's own direct link to view the event, e.g. for Calendar Change Handling. */
+  htmlLink?: string;
 };
 
 export type CalendarMeetingType = "hourly" | "all_day" | "multi_day";
@@ -38,6 +40,7 @@ export type MappedEvent = {
    */
   endsAt: Date;
   cancelled: boolean;
+  calendarLink: string | null;
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -90,6 +93,7 @@ export function mapCalendarEvent(raw: RawCalendarEvent): MappedEvent {
     startsAt,
     endsAt,
     cancelled: raw.status === "cancelled",
+    calendarLink: raw.htmlLink ?? null,
   };
 }
 

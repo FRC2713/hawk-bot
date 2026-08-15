@@ -4,6 +4,7 @@ import {
   attendanceStatusFor,
   isClockReaction,
   needsLateNudge,
+  stillNeedsLateNudge,
 } from "../domain/attendance.js";
 import {
   clearAttendanceReaction,
@@ -76,24 +77,77 @@ export async function syncAttendanceFromSlack(
 
   for (const [userId, names] of byUser) {
     if (!needsLateNudge(names) || wasNudged(event.id, userId)) continue;
-    // Best-effort: a DM failure here (DMs restricted, etc.) must not throw
-    // out of this function — Reaction Cutoff Verification wraps the resync
-    // in try/catch to detect an actual data-sync failure, and conflating an
-    // unrelated nudge failure with that would wrongly block a whole Event's
-    // cutoff. Not marking it nudged means it's retried on the next resync.
-    try {
-      await sendLateNudge(client, event, userId);
-      markNudged(event.id, userId);
-    } catch (err) {
-      log.warn("could not send late nudge", {
-        eventId: event.id,
-        userId,
-        error: String(err),
-      });
-    }
+    scheduleNudgeCheck(client, event, userId);
   }
 
   return { reactions: byUser };
+}
+
+const NUDGE_DELAY_MS = 30 * 1000;
+
+/**
+ * Pending delayed nudge checks, keyed by `${eventId}:${userId}` — a resync
+ * that fires again while one's already pending (e.g. two reaction events in
+ * quick succession) doesn't stack a second timer on top of it.
+ */
+const pendingNudgeChecks = new Map<string, NodeJS.Timeout>();
+
+/**
+ * Waits before deciding whether to nudge, rather than sending the instant a
+ * bare Clock Reaction is seen — someone who clicks 🕐 then 👍 a moment later
+ * would otherwise get a nudge they didn't need, since each reaction fires
+ * its own Slack event and this check would run on the first one alone.
+ * Every resync in between keeps the attendance row current, so the delayed
+ * check re-reads that rather than needing a second Slack fetch.
+ */
+function scheduleNudgeCheck(
+  client: WebClient,
+  event: EventRow,
+  userId: string
+): void {
+  const key = `${event.id}:${userId}`;
+  if (pendingNudgeChecks.has(key) || wasNudged(event.id, userId)) return;
+
+  const timer = setTimeout(() => {
+    pendingNudgeChecks.delete(key);
+    void runNudgeCheck(client, event, userId);
+  }, NUDGE_DELAY_MS);
+  timer.unref?.();
+  pendingNudgeChecks.set(key, timer);
+}
+
+async function runNudgeCheck(
+  client: WebClient,
+  event: EventRow,
+  userId: string
+): Promise<void> {
+  const row = getAttendanceForEvent(event.id).find((r) => r.user_id === userId);
+  if (!row) return;
+  if (
+    !stillNeedsLateNudge({
+      status: row.status,
+      hasClockReaction: Boolean(row.has_clock_reaction),
+    })
+  ) {
+    return;
+  }
+  if (wasNudged(event.id, userId)) return;
+
+  // Best-effort: a DM failure here (DMs restricted, etc.) must not throw —
+  // Reaction Cutoff Verification wraps the resync in try/catch to detect an
+  // actual data-sync failure, and conflating an unrelated nudge failure
+  // with that would wrongly block a whole Event's cutoff. Not marking it
+  // nudged means a future resync schedules another attempt.
+  try {
+    await sendLateNudge(client, event, userId);
+    markNudged(event.id, userId);
+  } catch (err) {
+    log.warn("could not send late nudge", {
+      eventId: event.id,
+      userId,
+      error: String(err),
+    });
+  }
 }
 
 async function sendLateNudge(
