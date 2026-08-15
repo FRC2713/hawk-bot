@@ -33,18 +33,23 @@ function strikethroughLines(text: string): string {
     .join("\n");
 }
 
-function checkinMessageText(event: EventRow): string {
+/** Title, when, where, and description — the part of the post worth keeping even once it's removed. */
+function meetingDetailsText(event: EventRow): string {
   const lines = [`<!channel> *${event.title}*`, formatEventTime(event)];
   if (event.location) lines.push(`📍 ${event.location}`);
   if (event.description) lines.push(event.description);
-  lines.push(
+  return lines.join("\n");
+}
+
+function checkinMessageText(event: EventRow): string {
+  return [
+    meetingDetailsText(event),
     "",
     "React to let the team know:",
     "👍 — I'm coming",
     "🕐 — I'm coming, but running late or leaving early (reply in this thread with details if you want)",
-    "❌, or anything else — I can't make it (reply in this thread with why, if you want)"
-  );
-  return lines.join("\n");
+    "❌, or anything else — I can't make it (reply in this thread with why, if you want)",
+  ].join("\n");
 }
 
 /**
@@ -104,10 +109,11 @@ export async function announceEventEdited(
 /**
  * Calendar Change Handling, the "removed" case: the same threaded broadcast
  * reply, plus editing the original post so the cancellation is visible
- * without opening the thread. The original details stay — struck through,
+ * without opening the thread. The meeting details stay — struck through,
  * not replaced — so anyone glancing at the post still sees what the
- * meeting was, not just that something happened to it. No Reaction Cutoff
- * runs afterward.
+ * meeting was, not just that something happened to it; the reaction
+ * legend is dropped since it's no longer relevant to a removed Event. No
+ * Reaction Cutoff runs afterward.
  */
 export async function announceEventRemoved(
   client: WebClient,
@@ -126,7 +132,7 @@ export async function announceEventRemoved(
     text: [
       `🚫 *${event.title}* — this meeting has been removed.`,
       "",
-      strikethroughLines(checkinMessageText(event)),
+      strikethroughLines(meetingDetailsText(event)),
     ].join("\n"),
   });
 }
