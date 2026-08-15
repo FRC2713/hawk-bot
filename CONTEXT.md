@@ -42,7 +42,7 @@ The three attendance outcomes for a team member on an Event, fixed at the Reacti
 _Avoid_: "coming" / "not coming" — use Attending / Not Attending
 
 **Clock Reaction**:
-Any clock-face, alarm-clock, or stopwatch emoji reaction on an Event Check-in Post, used to flag an expected late arrival or early departure. Purely informational — it never confers Attending on its own; only a 👍 does. If a Clock Reaction lands without a 👍 from the same person, the bot DMs them a nudge with a link back to the post, since without a 👍 they'll otherwise land in Not Attending despite meaning to attend late.
+Any clock-face, alarm-clock, or stopwatch emoji reaction on an Event Check-in Post, used to flag an expected late arrival or early departure. Purely informational — it never confers Attending on its own; only a 👍 does. If a Clock Reaction lands without a 👍 from the same person, the bot waits 30 seconds and checks again before DMing them a nudge with a link back to the post — long enough that reacting 🕐 then 👍 a moment later (a very ordinary way to mean "I'm coming, just late") never triggers a nudge that's already stale by the time it lands.
 
 **Attendance Note**:
 An optional free-text detail a team member adds by replying in the thread on the Event Check-in Post — e.g. an expected arrival time alongside a Clock Reaction, or a reason alongside a Not Attending reaction. The bot never prompts for it; a thread reply during the reaction window is captured if one shows up, and it's fine if it doesn't.
@@ -62,8 +62,8 @@ Immediately after the Reaction Cutoff's live resync and immediately before delet
 **Event Attendance Report**:
 Posted to a private `#hawkbot-attendance-report`-style channel (exact channel is an admin-configurable setting) immediately after an Event successfully clears its Reaction Cutoff and its Check-in Post is deleted — one report per Event, never batched. Kept short in the channel itself:
 
-- **Top-level message**: the Event's name, the Attending/Not Attending/No Response counts, and the hours the Event was worth per attendee (e.g. "12 attending (2 hrs each) · 3 not attending · 2 no response") — not a summed grand total, since every Attending person on one Event is credited the same hours.
-- **Threaded reply**: a monospace table, one row per person — Name, derived Status (Attending/Not Attending/No Response), the raw reaction(s) they left, and their Attendance Note if any. Showing derived Status alongside the raw reactions means a reader doesn't need to know the 👍-wins-regardless precedence rule by heart.
+- **Top-level message**: the Event's name, the Attending/Not Attending/No Response counts, and the hours the Event was worth per attendee (e.g. "12 attended (2 hrs each) · 3 didn't attend · 2 no response") — not a summed grand total, since every Attending person on one Event is credited the same hours. Past tense throughout, unlike the Attending/Not Attending/No Response terms elsewhere — this posts after the Reaction Cutoff, so it's reporting what happened, not describing a still-open response window.
+- **Threaded reply**: a monospace table, one row per person — Name, derived Status ("Attended"/"Didn't Attend"/"No Response", same past-tense reasoning), the raw reaction(s) they left, and their Attendance Note if any. Showing derived Status alongside the raw reactions means a reader doesn't need to know the 👍-wins-regardless precedence rule by heart.
 
 No link out to another surface — the detail lives entirely inside the thread reply.
 
