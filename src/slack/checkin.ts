@@ -25,6 +25,14 @@ function formatEventTime(event: EventRow): string {
   return `${dateStr}, ${start.toLocaleTimeString("en-US", timeFmt)}–${end.toLocaleTimeString("en-US", timeFmt)}`;
 }
 
+/** Strikes through each non-blank line individually, rather than one span across the whole block, so a blank line can't break the formatting partway through. */
+function strikethroughLines(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => (line.trim() ? `~${line}~` : line))
+    .join("\n");
+}
+
 function checkinMessageText(event: EventRow): string {
   const lines = [`<!channel> *${event.title}*`, formatEventTime(event)];
   if (event.location) lines.push(`📍 ${event.location}`);
@@ -95,8 +103,11 @@ export async function announceEventEdited(
 
 /**
  * Calendar Change Handling, the "removed" case: the same threaded broadcast
- * reply, plus editing the original post's text so the cancellation is
- * visible without opening the thread. No Reaction Cutoff runs afterward.
+ * reply, plus editing the original post so the cancellation is visible
+ * without opening the thread. The original details stay — struck through,
+ * not replaced — so anyone glancing at the post still sees what the
+ * meeting was, not just that something happened to it. No Reaction Cutoff
+ * runs afterward.
  */
 export async function announceEventRemoved(
   client: WebClient,
@@ -112,6 +123,10 @@ export async function announceEventRemoved(
   await client.chat.update({
     channel: event.checkin_channel,
     ts: event.checkin_message_ts,
-    text: `🚫 *${event.title}* — this meeting has been removed.`,
+    text: [
+      `🚫 *${event.title}* — this meeting has been removed.`,
+      "",
+      strikethroughLines(checkinMessageText(event)),
+    ].join("\n"),
   });
 }
