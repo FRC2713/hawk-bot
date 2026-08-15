@@ -172,10 +172,15 @@ async function syncCalendar(client: WebClient): Promise<void> {
     });
     const updated = getEvent(existing.id);
     if (updated) {
-      // Reads the just-updated row, not the stale pre-edit one, so the
-      // original post gets rewritten with the new details, not the old.
+      // existing is the stale pre-edit row, updated is fresh — announceEventEdited
+      // needs both to show old-vs-new per field, and rewrites the post from updated.
       if (existing.checkin_posted_at) {
-        await announceEventEdited(client, updated, change.changedFields);
+        await announceEventEdited(
+          client,
+          existing,
+          updated,
+          change.changedFields
+        );
       }
       await reflectWeeklySummaryChange(client, updated, "changed");
     }

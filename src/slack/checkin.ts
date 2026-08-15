@@ -96,37 +96,75 @@ export async function postCheckinPost(
   return { channel, ts, roster };
 }
 
+/** One `~old~ → new` line per changed field worth showing a before/after for. */
+function changedDetailLines(
+  previous: EventRow,
+  current: EventRow,
+  changedFields: readonly string[]
+): string[] {
+  const lines: string[] = [];
+  if (changedFields.includes("title")) {
+    lines.push(`~*${previous.title}*~ → *${current.title}*`);
+  }
+  if (
+    changedFields.includes("start time") ||
+    changedFields.includes("end time")
+  ) {
+    lines.push(
+      `🕐 ~${formatEventTime(previous)}~ → ${formatEventTime(current)}`
+    );
+  }
+  if (changedFields.includes("location")) {
+    lines.push(
+      `📍 ~${previous.location || "(none)"}~ → ${current.location || "(none)"}`
+    );
+  }
+  if (changedFields.includes("description")) {
+    lines.push(
+      `~${previous.description || "(none)"}~ → ${current.description || "(none)"}`
+    );
+  }
+  return lines;
+}
+
 /**
  * Calendar Change Handling, the "edited" case: a threaded, channel-broadcast
- * reply naming what changed and linking straight to the calendar event,
- * plus rewriting the original post itself with the new details — marked
- * with an ✏️ and which fields changed, rather than left as originally
- * written. Every existing reaction carries forward unchanged either way.
+ * reply naming what changed, showing the old value struck through next to
+ * the new one for each changed field, and linking straight to the calendar
+ * event — plus rewriting the original post itself with the new details,
+ * marked with an ✏️ and which fields changed, rather than left as
+ * originally written. Every existing reaction carries forward unchanged
+ * either way.
  */
 export async function announceEventEdited(
   client: WebClient,
-  event: EventRow,
+  previous: EventRow,
+  current: EventRow,
   changedFields: readonly string[]
 ): Promise<void> {
-  if (!event.checkin_channel || !event.checkin_message_ts) return;
+  if (!current.checkin_channel || !current.checkin_message_ts) return;
 
   const changedList = changedFields.join(", ");
-  const linkLine = event.calendar_link
-    ? `<${event.calendar_link}|View on the calendar>`
+  const linkLine = current.calendar_link
+    ? `<${current.calendar_link}|View on the calendar>`
     : undefined;
   await client.chat.postMessage({
-    channel: event.checkin_channel,
-    thread_ts: event.checkin_message_ts,
+    channel: current.checkin_channel,
+    thread_ts: current.checkin_message_ts,
     reply_broadcast: true,
-    text: [`📝 *${event.title}* changed: ${changedList} updated.`, linkLine]
+    text: [
+      `📝 *${current.title}* changed: ${changedList} updated.`,
+      ...changedDetailLines(previous, current, changedFields),
+      linkLine,
+    ]
       .filter(Boolean)
       .join("\n"),
   });
 
   await client.chat.update({
-    channel: event.checkin_channel,
-    ts: event.checkin_message_ts,
-    text: [meetingDetailsText(event, changedList), ...REACTION_LEGEND].join(
+    channel: current.checkin_channel,
+    ts: current.checkin_message_ts,
+    text: [meetingDetailsText(current, changedList), ...REACTION_LEGEND].join(
       "\n"
     ),
   });
