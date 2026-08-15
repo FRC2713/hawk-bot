@@ -485,11 +485,17 @@ export type PersonEventOutcome = {
 };
 
 // source = 'google_calendar' keeps manual_test Events (see ADR-0002) out of
-// every real report and export.
-const SEASON_OUTCOMES_WHERE = `
-  WHERE e.removed_at IS NULL AND e.finalized_at IS NOT NULL
+// every real report and export. Shared by every "countable event" query —
+// season outcomes and the No Response Alert's recent-outcomes lookup alike —
+// so a future change to what counts never has to be made in two places.
+const COUNTABLE_EVENT_WHERE = `
+  e.removed_at IS NULL AND e.finalized_at IS NOT NULL
     AND e.source = 'google_calendar'
     AND e.meeting_type IN ('hourly', 'all_day')
+`;
+
+const SEASON_OUTCOMES_WHERE = `
+  WHERE ${COUNTABLE_EVENT_WHERE}
     AND e.starts_at >= ? AND e.starts_at < ?
 `;
 
@@ -558,6 +564,39 @@ export function getTeamSeasonOutcomes(
     byUser.set(r.user_id, list);
   }
   return byUser;
+}
+
+export type RecentOutcomeRow = {
+  title: string;
+  starts_at: string;
+  status: "attending" | "not_attending" | null;
+};
+
+/**
+ * One person's most recent tracked-meeting outcomes, newest first — same
+ * countable-event filters as SEASON_OUTCOMES_WHERE, ordered and limited
+ * instead of date-ranged. The extra calendar_role check is defensive
+ * belt-and-suspenders: every event_roster row is already team_meeting-only
+ * in practice (see snapshotRoster/listEventsDueForCheckin), but nothing in
+ * the schema enforces that. Feeds domain/noResponseAlert.ts's
+ * isNoResponseStreak.
+ */
+export function getRecentOutcomesForUser(
+  userId: string,
+  limit: number
+): RecentOutcomeRow[] {
+  return db()
+    .prepare<[string, number], RecentOutcomeRow>(
+      `SELECT e.title, e.starts_at, a.status
+       FROM events e
+       JOIN event_roster r ON r.event_id = e.id AND r.user_id = ?
+       LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = r.user_id
+       WHERE ${COUNTABLE_EVENT_WHERE}
+         AND e.calendar_role = 'team_meeting'
+       ORDER BY e.starts_at DESC
+       LIMIT ?`
+    )
+    .all(userId, limit);
 }
 
 /* --------------------------------------------------------- weekly summary */
@@ -819,6 +858,41 @@ export function getMostRecentMentorSummary(): MentorSummaryRow | undefined {
   return db()
     .prepare<[], MentorSummaryRow>(
       "SELECT * FROM mentor_summaries ORDER BY posted_at DESC LIMIT 1"
+    )
+    .get();
+}
+
+/* --------------------------------------------------- no response alert */
+
+export type NoResponseAlertRow = {
+  id: number;
+  channel: string;
+  message_ts: string | null;
+  posted_at: string;
+};
+
+/**
+ * No item table — each week's alert is independent, never edited or
+ * deleted, see noResponseAlert.ts. `messageTs` is null for a "checked,
+ * nobody flagged" run — still a row, so the due-check advances either way.
+ */
+export function insertNoResponseAlert(args: {
+  channel: string;
+  messageTs: string | null;
+}): number {
+  const result = db()
+    .prepare(
+      `INSERT INTO no_response_alerts (channel, message_ts, posted_at)
+       VALUES (?, ?, ?)`
+    )
+    .run(args.channel, args.messageTs, nowIso());
+  return Number(result.lastInsertRowid);
+}
+
+export function getMostRecentNoResponseAlert(): NoResponseAlertRow | undefined {
+  return db()
+    .prepare<[], NoResponseAlertRow>(
+      "SELECT * FROM no_response_alerts ORDER BY posted_at DESC LIMIT 1"
     )
     .get();
 }

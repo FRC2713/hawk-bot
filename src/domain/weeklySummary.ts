@@ -132,7 +132,7 @@ export type WeeklySummaryEventInfo = {
   location: string;
 };
 
-const DATE_FMT: Intl.DateTimeFormatOptions = {
+export const DATE_FMT: Intl.DateTimeFormatOptions = {
   weekday: "short",
   month: "short",
   day: "numeric",
