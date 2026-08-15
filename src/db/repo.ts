@@ -139,12 +139,19 @@ export function listSettings(): SettingRow[] {
 
 export type MeetingTypeRow = "hourly" | "all_day" | "multi_day";
 export type EventSource = "google_calendar" | "manual_test";
+/**
+ * Which of the team's three Google Calendars an Event came from. Only
+ * 'team_meeting' Events ever get a Check-in Post or Attendance Tracking —
+ * see listEventsDueForCheckin. Set once at insert, never changed.
+ */
+export type EventCalendarRole = "team_meeting" | "informational" | "mentor";
 
 export type EventRow = {
   id: number;
   calendar_event_id: string | null;
   calendar_link: string | null;
   source: EventSource;
+  calendar_role: EventCalendarRole;
   title: string;
   description: string;
   location: string;
@@ -167,6 +174,7 @@ export type NewEvent = {
   calendarEventId: string | null;
   calendarLink: string | null;
   source: EventSource;
+  calendarRole: EventCalendarRole;
   title: string;
   description: string;
   location: string;
@@ -181,15 +189,16 @@ export function insertEvent(event: NewEvent): number {
   const now = nowIso();
   const result = db()
     .prepare(
-      `INSERT INTO events (calendar_event_id, calendar_link, source, title, description, location,
+      `INSERT INTO events (calendar_event_id, calendar_link, source, calendar_role, title, description, location,
                             meeting_type, starts_at, ends_at, checkin_at, reaction_cutoff_at,
                             created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       event.calendarEventId,
       event.calendarLink,
       event.source,
+      event.calendarRole,
       event.title,
       event.description,
       event.location,
@@ -204,10 +213,10 @@ export function insertEvent(event: NewEvent): number {
   return Number(result.lastInsertRowid);
 }
 
-/** Everything a calendar sync might change about an already-known Event. */
+/** Everything a calendar sync might change about an already-known Event — calendar_role is set once at insert and never changes. */
 export function updateEventFromCalendar(
   id: number,
-  patch: Omit<NewEvent, "calendarEventId" | "source">
+  patch: Omit<NewEvent, "calendarEventId" | "source" | "calendarRole">
 ): void {
   const now = nowIso();
   db()
@@ -311,11 +320,13 @@ export function clearVerificationFailed(id: number): void {
     .run(now, id);
 }
 
+/** Only the Team Meeting Calendar ever produces a Check-in Post — Informational and Mentor/Teacher Events are listing-only. */
 export function listEventsDueForCheckin(nowIsoStr: string): EventRow[] {
   return db()
     .prepare<[string], EventRow>(
       `SELECT * FROM events
        WHERE checkin_posted_at IS NULL AND removed_at IS NULL
+         AND calendar_role = 'team_meeting'
          AND meeting_type != 'multi_day' AND checkin_at <= ?`
     )
     .all(nowIsoStr);
@@ -551,18 +562,24 @@ export function getTeamSeasonOutcomes(
 
 /* --------------------------------------------------------- weekly summary */
 
-/** Every non-removed Event starting in range, any Meeting Type — for the Weekly Summary listing. */
+/**
+ * Every non-removed Event starting in range for one Calendar Role, any
+ * Meeting Type — for the Team Meeting Weekly Summary, the Informational
+ * reply, and the Mentor/Teacher Weekly Summary alike.
+ */
 export function listEventsStartingInRange(
   startIso: string,
-  endIso: string
+  endIso: string,
+  calendarRole: EventCalendarRole
 ): EventRow[] {
   return db()
-    .prepare<[string, string], EventRow>(
+    .prepare<[EventCalendarRole, string, string], EventRow>(
       `SELECT * FROM events
-       WHERE removed_at IS NULL AND starts_at >= ? AND starts_at < ?
+       WHERE removed_at IS NULL AND calendar_role = ?
+         AND starts_at >= ? AND starts_at < ?
        ORDER BY starts_at`
     )
-    .all(startIso, endIso);
+    .all(calendarRole, startIso, endIso);
 }
 
 export type WeeklySummaryRow = {
@@ -572,6 +589,9 @@ export type WeeklySummaryRow = {
   week_start: string;
   week_end: string;
   posted_at: string;
+  /** Null until (if the Informational Calendar is enabled) the first Informational Event of the week is discovered. */
+  informational_channel: string | null;
+  informational_message_ts: string | null;
 };
 
 export function insertWeeklySummary(args: {
@@ -673,4 +693,132 @@ export function markWeeklySummaryItemRemoved(
       "UPDATE weekly_summary_items SET removed = 1 WHERE weekly_summary_id = ? AND event_id = ?"
     )
     .run(weeklySummaryId, eventId);
+}
+
+/** Recorded the first time the Informational Calendar has an Event within a given week's post — see weeklySummary.ts. */
+export function setInformationalReply(
+  weeklySummaryId: number,
+  channel: string,
+  messageTs: string
+): void {
+  db()
+    .prepare(
+      "UPDATE weekly_summaries SET informational_channel = ?, informational_message_ts = ? WHERE id = ?"
+    )
+    .run(channel, messageTs, weeklySummaryId);
+}
+
+/* ---------------------------------------------- weekly summary: informational */
+
+export type WeeklySummaryInformationalItemRow = {
+  weekly_summary_id: number;
+  event_id: number;
+  snapshot_title: string;
+  snapshot_meeting_type: MeetingTypeRow;
+  snapshot_starts_at: string;
+  snapshot_ends_at: string;
+  snapshot_location: string;
+  added_mid_week: number;
+  removed: number;
+};
+
+export type NewWeeklySummaryInformationalItem = {
+  weeklySummaryId: number;
+  eventId: number;
+  snapshotTitle: string;
+  snapshotMeetingType: MeetingTypeRow;
+  snapshotStartsAt: string;
+  snapshotEndsAt: string;
+  snapshotLocation: string;
+  addedMidWeek: boolean;
+};
+
+/** Mirrors insertWeeklySummaryItem, for the Informational reply's own item set. */
+export function insertWeeklySummaryInformationalItem(
+  item: NewWeeklySummaryInformationalItem
+): void {
+  db()
+    .prepare(
+      `INSERT INTO weekly_summary_informational_items
+         (weekly_summary_id, event_id, snapshot_title, snapshot_meeting_type,
+          snapshot_starts_at, snapshot_ends_at, snapshot_location, added_mid_week)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      item.weeklySummaryId,
+      item.eventId,
+      item.snapshotTitle,
+      item.snapshotMeetingType,
+      item.snapshotStartsAt,
+      item.snapshotEndsAt,
+      item.snapshotLocation,
+      item.addedMidWeek ? 1 : 0
+    );
+}
+
+export function getWeeklySummaryInformationalItem(
+  weeklySummaryId: number,
+  eventId: number
+): WeeklySummaryInformationalItemRow | undefined {
+  return db()
+    .prepare<[number, number], WeeklySummaryInformationalItemRow>(
+      "SELECT * FROM weekly_summary_informational_items WHERE weekly_summary_id = ? AND event_id = ?"
+    )
+    .get(weeklySummaryId, eventId);
+}
+
+export function listWeeklySummaryInformationalItems(
+  weeklySummaryId: number
+): WeeklySummaryInformationalItemRow[] {
+  return db()
+    .prepare<[number], WeeklySummaryInformationalItemRow>(
+      "SELECT * FROM weekly_summary_informational_items WHERE weekly_summary_id = ?"
+    )
+    .all(weeklySummaryId);
+}
+
+export function markWeeklySummaryInformationalItemRemoved(
+  weeklySummaryId: number,
+  eventId: number
+): void {
+  db()
+    .prepare(
+      "UPDATE weekly_summary_informational_items SET removed = 1 WHERE weekly_summary_id = ? AND event_id = ?"
+    )
+    .run(weeklySummaryId, eventId);
+}
+
+/* --------------------------------------------------------- mentor summary */
+
+export type MentorSummaryRow = {
+  id: number;
+  channel: string;
+  message_ts: string;
+  week_start: string;
+  week_end: string;
+  posted_at: string;
+};
+
+/** No item table — the Mentor/Teacher Weekly Summary has no mid-window edit-in-place, see mentorSummary.ts. */
+export function insertMentorSummary(args: {
+  channel: string;
+  messageTs: string;
+  weekStart: string;
+  weekEnd: string;
+}): number {
+  const result = db()
+    .prepare(
+      `INSERT INTO mentor_summaries (channel, message_ts, week_start, week_end, posted_at)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    .run(args.channel, args.messageTs, args.weekStart, args.weekEnd, nowIso());
+  return Number(result.lastInsertRowid);
+}
+
+export function getMostRecentMentorSummary(): MentorSummaryRow | undefined {
+  return db()
+    .prepare<[], MentorSummaryRow>(
+      "SELECT * FROM mentor_summaries ORDER BY posted_at DESC LIMIT 1"
+    )
+    .get();
 }

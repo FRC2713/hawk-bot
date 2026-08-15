@@ -20,7 +20,7 @@ import {
   type CheckinPostOffsets,
   type MappedEvent,
 } from "./domain/calendar.js";
-import { fetchTeamCalendarEvents } from "./calendar/client.js";
+import { fetchCalendarEvents } from "./calendar/client.js";
 import {
   anyInstallation,
   getAttendanceForEvent,
@@ -38,6 +38,7 @@ import {
   setHoursCredited,
   snapshotRoster,
   updateEventFromCalendar,
+  type EventCalendarRole,
   type EventRow,
 } from "./db/repo.js";
 import { log } from "./logger.js";
@@ -49,6 +50,8 @@ import {
 import { syncAttendanceFromSlack } from "./slack/attendanceEvents.js";
 import { listHawkBotAdmins } from "./slack/authz.js";
 import { openDirectMessage } from "./slack/dm.js";
+import { postDueMentorSummary } from "./mentorSummary.js";
+import type { SettingKey } from "./domain/settings.js";
 import {
   postDueWeeklySummary,
   reflectWeeklySummaryChange,
@@ -96,18 +99,39 @@ function toMappedEvent(row: EventRow): MappedEvent {
 }
 
 /**
- * Pulls the Team Meeting Calendar, applies Meeting Type derivation, and runs
- * Calendar Change Handling for anything already tracked, plus Weekly
- * Summary Change Reflection for anything within the current week. Multi-Day
- * entries are now tracked as Events too (for the Weekly Summary listing —
- * see CONTEXT.md, Weekly Summary Post) but never get a Check-in Post or
- * attendance tracking, which stays deferred.
+ * The team's three Google Calendars, each read through the same shared
+ * service account, and the Calendar Role their Events are tagged with once
+ * stored — see db/repo.ts, EventCalendarRole. Informational and
+ * Mentor/Teacher are only synced once a HawkBot Admin sets their id;
+ * setting/clearing that id is the whole on/off toggle for each (see
+ * domain/settings.ts) — nothing else gates whether they're polled.
  */
-async function syncCalendar(client: WebClient): Promise<void> {
-  const calendarId = getSetting("google_calendar_id");
-  if (!calendarId) return;
+const CALENDAR_SOURCES: readonly {
+  settingKey: SettingKey;
+  calendarRole: EventCalendarRole;
+}[] = [
+  { settingKey: "google_calendar_id", calendarRole: "team_meeting" },
+  { settingKey: "informational_calendar_id", calendarRole: "informational" },
+  { settingKey: "mentor_calendar_id", calendarRole: "mentor" },
+];
 
-  const raw = await fetchTeamCalendarEvents(calendarId);
+/**
+ * Pulls one calendar, applies Meeting Type derivation, and runs Calendar
+ * Change Handling for anything already tracked, plus Weekly Summary Change
+ * Reflection for anything within the current week — reflectWeeklySummaryChange
+ * itself routes by the Event's Calendar Role (see weeklySummary.ts). Multi-Day
+ * entries are tracked as Events too (for a Weekly Summary listing — see
+ * CONTEXT.md, Weekly Summary Post) but never get a Check-in Post or
+ * attendance tracking, which stays deferred, and stays exclusive to
+ * `team_meeting` Events regardless of Meeting Type (see
+ * listEventsDueForCheckin).
+ */
+async function syncOneCalendar(
+  client: WebClient,
+  calendarId: string,
+  calendarRole: EventCalendarRole
+): Promise<void> {
+  const raw = await fetchCalendarEvents(calendarId);
   const offsets = checkinOffsets();
 
   for (const rawEvent of raw) {
@@ -130,6 +154,7 @@ async function syncCalendar(client: WebClient): Promise<void> {
         calendarEventId: mapped.calendarEventId,
         calendarLink: mapped.calendarLink,
         source: "google_calendar",
+        calendarRole,
         title: mapped.title,
         description: mapped.description,
         location: mapped.location,
@@ -184,6 +209,14 @@ async function syncCalendar(client: WebClient): Promise<void> {
       }
       await reflectWeeklySummaryChange(client, updated, "changed");
     }
+  }
+}
+
+async function syncCalendars(client: WebClient): Promise<void> {
+  for (const { settingKey, calendarRole } of CALENDAR_SOURCES) {
+    const calendarId = getSetting(settingKey);
+    if (!calendarId) continue;
+    await syncOneCalendar(client, calendarId, calendarRole);
   }
 }
 
@@ -385,8 +418,9 @@ export async function runSchedulerTick(): Promise<void> {
   const { client, botUserId } = installed;
 
   try {
-    await syncCalendar(client);
+    await syncCalendars(client);
     await postDueWeeklySummary(client);
+    await postDueMentorSummary(client);
     await postDueCheckins(client, botUserId);
     await finalizeDueCutoffs(client, botUserId);
   } catch (err) {

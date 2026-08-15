@@ -5,13 +5,16 @@ The Red Hawk Robotics team assistant for Slack — see `CLAUDE.md` for the techn
 ## Language
 
 **Event**:
-A scheduled team activity that people are expected to attend and that carries scheduled hours toward attendance credit. Has a title, date/time, location, and description. Every Event has a Meeting Type, derived from its date/time shape. v1 sources Events from the Team Meeting Calendar only, one-for-one with that calendar's entries — an Event becomes real the instant a mentor creates it there, no approval step.
+A calendar entry pulled from one of the team's three Google Calendars, one-for-one with that calendar's entry — it becomes real the instant a mentor creates it there, no approval step. Has a title, date/time, location, description, and a Calendar Role. Every Event has a Meeting Type, derived from its date/time shape. Only a Team Meeting Calendar Event is something people are expected to attend and carries scheduled hours toward attendance credit; an Informational or Mentor/Teacher Calendar Event is listing-only — see Calendar Role.
 
 **Team Meeting Calendar**:
-The Google Calendar mentors use to create, edit, and delete team meetings directly — the source of truth for Events. Mentors manage it in Google Calendar itself, not in Slack (in-Slack event management is a future upgrade); Hawk Bot reads it and reflects changes automatically.
+The Google Calendar mentors use to create, edit, and delete team meetings directly — the source of truth for Team Meeting Events, the only ones Attendance Tracking runs against. Mentors manage it in Google Calendar itself, not in Slack (in-Slack event management is a future upgrade); Hawk Bot reads it and reflects changes automatically.
 
 **Informational Calendar** / **Mentor/Teacher Calendar**:
-Two other calendars the team keeps: Informational (placeholder/FYI dates, school closures — visible to everyone, no action needed) and Mentor/Teacher (adult-only unavailability and admin meetings). Neither feeds Attendance Tracking in v1 — only the Team Meeting Calendar does. Pulling from them is a future upgrade.
+Two other calendars the team keeps, each independently enabled by a HawkBot Admin setting its calendar id: Informational (placeholder/FYI dates, school closures — visible to everyone, no action needed) and Mentor/Teacher (adult-only unavailability and admin meetings). Neither feeds Attendance Tracking — only the Team Meeting Calendar does; see Calendar Role. Informational Events surface in the Weekly Summary Post's Informational Reply; Mentor/Teacher Events surface in the Mentor/Teacher Weekly Summary.
+
+**Calendar Role**:
+Which of the team's three Google Calendars an Event came from — `team_meeting`, `informational`, or `mentor` — fixed at the moment the Event is first synced, never reassigned. The one gate for whether an Event gets an Event Check-in Post and Attendance Tracking at all: only `team_meeting` does, regardless of Meeting Type. An Informational or Mentor/Teacher Event still gets a Meeting Type (for line formatting) and still participates in calendar sync's add/edit/remove detection — it's simply never eligible for a Check-in Post.
 
 **Meeting Type**:
 Classifies an Event by its time shape, and determines the Check-in Post timing rule applied to it. Derived directly from the calendar entry's own start/end, not chosen separately:
@@ -82,3 +85,9 @@ How the Weekly Summary Post stays accurate through the week it covers. Unlike Ca
 - **New Event discovered mid-week**: appended to the already-posted summary immediately, not held until next week — tagged "🆕 _New_" so it's obviously not something everyone already saw Sunday. Unlike an edited or removed Event, it stays tagged for the rest of that week rather than the tag being a one-time strikethrough-style annotation, since there's no "original" version of the line to contrast it against.
 
 This keeps reflecting an Event's changes for the rest of the week even after that Event gets its own Event Check-in Post — Calendar Change Handling's threaded, broadcast reply is an _additional_, more active notification for people already tracking that specific Event, not a replacement. A summary that went stale for any Event with a Check-in Post would defeat the point of it being a reliable weekly reference. See ADR-0005 for why this is in-place editing rather than the threaded-reply design originally sketched.
+
+**Informational Reply**:
+The Informational Calendar's digest, if enabled: a threaded reply under that week's Weekly Summary Post, covering the same Monday–Sunday week, rather than a separate top-level post or broadcast. Posted the first time an Informational Event shows up in a given week — not posted at all for a week with none, so an enabled-but-empty week stays silent rather than adding noise. Follows Weekly Summary Change Reflection's own rules for the rest of the week (edited/removed/new), and is deleted alongside the parent Weekly Summary Post at the next weekly rollover.
+
+**Mentor/Teacher Weekly Summary**:
+The Mentor/Teacher Calendar's digest, if enabled: its own post, on its own admin-configurable day/time, to an admin-only channel (not the team announcements channel) — separate audience, separate schedule from the Weekly Summary Post. Covers a two-week span (two consecutive Monday–Sunday weeks) rather than one, for more lead time on travel and unavailability conflicts. Deleted and reposted fresh each cycle like the Weekly Summary Post, but with no Weekly Summary Change Reflection — a mid-window change surfaces on the next scheduled post rather than a live edit, since this is an admin FYI digest, not something people are actively tracking mid-week.

@@ -101,3 +101,30 @@ test("the weekly summary time is a day plus a 24-hour time", () => {
   assert.equal(checkSetting("weekly_summary_time", "SUN 25:00").ok, false);
   assert.equal(checkSetting("weekly_summary_time", "12:00").ok, false);
 });
+
+test("the Informational and Mentor/Teacher Calendar ids just need to be non-blank, same as the Team Meeting Calendar id", () => {
+  assert.equal(
+    checkSetting("informational_calendar_id", "info@group.calendar.google.com")
+      .ok,
+    true
+  );
+  assert.equal(checkSetting("informational_calendar_id", "   ").ok, false);
+  assert.equal(
+    checkSetting("mentor_calendar_id", "mentors@group.calendar.google.com").ok,
+    true
+  );
+  assert.equal(checkSetting("mentor_calendar_id", "   ").ok, false);
+});
+
+test("the mentor summary channel is a channel id like any other channel setting", () => {
+  assert.equal(checkSetting("mentor_summary_channel", "C0123456789").ok, true);
+  assert.equal(
+    checkSetting("mentor_summary_channel", "#admin-official").ok,
+    false
+  );
+});
+
+test("the mentor summary time is a day plus a 24-hour time, same shape as the weekly summary time", () => {
+  assert.equal(checkSetting("mentor_summary_time", "SUN 12:00").ok, true);
+  assert.equal(checkSetting("mentor_summary_time", "Sunday 12:00").ok, false);
+});

@@ -92,6 +92,7 @@ export const event: Command = {
       calendarEventId: null,
       calendarLink: null,
       source: "manual_test",
+      calendarRole: "team_meeting",
       title,
       description: "",
       location: location ?? "",

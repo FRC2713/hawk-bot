@@ -19,7 +19,11 @@ export type SettingKey =
   | "default_all_day_hours"
   | "attendance_report_channel"
   | "admin_usergroup"
-  | "weekly_summary_time";
+  | "weekly_summary_time"
+  | "informational_calendar_id"
+  | "mentor_calendar_id"
+  | "mentor_summary_channel"
+  | "mentor_summary_time";
 
 export type Setting = {
   key: SettingKey;
@@ -95,6 +99,35 @@ export const SETTINGS: readonly Setting[] = [
   {
     key: "weekly_summary_time",
     summary: "When the Weekly Summary Post goes out",
+    expects: "a day and 24-hour time, e.g. SUN 12:00",
+    validate: (v) =>
+      /^(SUN|MON|TUE|WED|THU|FRI|SAT)\s+([01]\d|2[0-3]):([0-5]\d)$/i.test(
+        v.trim()
+      ),
+  },
+  {
+    key: "informational_calendar_id",
+    summary:
+      "The Informational Calendar's id — set to enable it, unset to disable. Its Events post as a threaded reply under the Weekly Summary Post",
+    expects: "a Google Calendar id, e.g. team@group.calendar.google.com",
+    validate: (v) => v.trim().length > 0 && v.trim().length <= 200,
+  },
+  {
+    key: "mentor_calendar_id",
+    summary:
+      "The Mentor/Teacher Calendar's id — set to enable it, unset to disable. Its Events post to the Mentor/Teacher Weekly Summary",
+    expects: "a Google Calendar id, e.g. mentors@group.calendar.google.com",
+    validate: (v) => v.trim().length > 0 && v.trim().length <= 200,
+  },
+  {
+    key: "mentor_summary_channel",
+    summary: "Channel the Mentor/Teacher Weekly Summary posts to",
+    expects: "a channel id like C0123456789 (not the #name)",
+    validate: (v) => CHANNEL_ID.test(v.trim()),
+  },
+  {
+    key: "mentor_summary_time",
+    summary: "When the Mentor/Teacher Weekly Summary goes out",
     expects: "a day and 24-hour time, e.g. SUN 12:00",
     validate: (v) =>
       /^(SUN|MON|TUE|WED|THU|FRI|SAT)\s+([01]\d|2[0-3]):([0-5]\d)$/i.test(
