@@ -171,13 +171,14 @@ export async function announceEventEdited(
 }
 
 /**
- * Calendar Change Handling, the "removed" case: the same threaded broadcast
- * reply, plus editing the original post so the cancellation is visible
- * without opening the thread. The meeting details stay — struck through,
- * not replaced — so anyone glancing at the post still sees what the
- * meeting was, not just that something happened to it; the reaction
- * legend is dropped since it's no longer relevant to a removed Event. No
- * Reaction Cutoff runs afterward.
+ * Calendar Change Handling, the "removed" case: a threaded broadcast reply
+ * naming the meeting and when it was scheduled — so it stands on its own
+ * for anyone who only sees the thread notification — plus editing the
+ * original post so the cancellation is visible without opening the thread.
+ * The meeting details stay there too — struck through, not replaced — so
+ * anyone glancing at the post still sees what the meeting was, not just
+ * that something happened to it; the reaction legend is dropped since it's
+ * no longer relevant to a removed Event. No Reaction Cutoff runs afterward.
  */
 export async function announceEventRemoved(
   client: WebClient,
@@ -188,7 +189,10 @@ export async function announceEventRemoved(
     channel: event.checkin_channel,
     thread_ts: event.checkin_message_ts,
     reply_broadcast: true,
-    text: `🚫 *${event.title}* has been removed from the calendar.`,
+    text: [
+      `🚫 *${event.title}* has been removed from the calendar.`,
+      formatEventTime(event),
+    ].join("\n"),
   });
   await client.chat.update({
     channel: event.checkin_channel,
