@@ -95,6 +95,22 @@ export function upcomingWeekRange(postedAt: Date): WeekRange {
   return { start, end };
 }
 
+/**
+ * Two consecutive Monday–Sunday weeks, starting the same Monday
+ * `upcomingWeekRange` would — the Mentor/Teacher Weekly Summary's span,
+ * wider than the Team Meeting Weekly Summary's so unavailability and travel
+ * conflicts surface with more lead time.
+ */
+export function upcomingTwoWeekRange(postedAt: Date): WeekRange {
+  const { start } = upcomingWeekRange(postedAt);
+  const end = new Date(
+    start.getFullYear(),
+    start.getMonth(),
+    start.getDate() + 14
+  );
+  return { start, end };
+}
+
 /** Whether `date` falls within a Weekly Summary Post's week — the routing rule for Change Reflection. */
 export function isWithinWeek(date: Date, range: WeekRange): boolean {
   return (
@@ -199,17 +215,29 @@ export type WeeklySummaryLineEntry = {
   text: string;
 };
 
-/** Assembles the full message body, sorted chronologically regardless of input order. */
+/**
+ * Assembles the full message body, sorted chronologically regardless of
+ * input order. `label` and `emptyText` default to the Team Meeting Weekly
+ * Summary's own wording; the Informational reply and Mentor/Teacher Weekly
+ * Summary override `label` so each reads as its own digest rather than a
+ * repeat of "This Week".
+ */
 export function assembleWeeklySummaryMessage(args: {
   weekStart: Date;
   weekEnd: Date;
   entries: readonly WeeklySummaryLineEntry[];
+  label?: string;
+  emptyText?: string;
 }): string {
   const lastDay = new Date(args.weekEnd.getTime() - DAY_MS);
-  const header = `*This Week* — ${args.weekStart.toLocaleDateString("en-US", DATE_FMT)} to ${lastDay.toLocaleDateString("en-US", DATE_FMT)}`;
+  const label = args.label ?? "This Week";
+  const header = `*${label}* — ${args.weekStart.toLocaleDateString("en-US", DATE_FMT)} to ${lastDay.toLocaleDateString("en-US", DATE_FMT)}`;
 
   if (args.entries.length === 0) {
-    return [header, "_Nothing on the calendar this week._"].join("\n\n");
+    return [
+      header,
+      args.emptyText ?? "_Nothing on the calendar this week._",
+    ].join("\n\n");
   }
 
   const sorted = [...args.entries].sort(

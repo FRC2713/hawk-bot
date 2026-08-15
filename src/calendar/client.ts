@@ -34,14 +34,16 @@ type CalendarEventsResponse = {
 };
 
 /**
- * Every event on the Team Meeting Calendar due for a sync pass, expanded
- * (`singleEvents=true`) so a recurring weekly practice comes back as its
- * individual occurrences with real start/end times, not one master event
- * with a recurrence rule. `showDeleted=true` is how a cancellation is
- * detected — Google reports it as `status: "cancelled"` rather than simply
- * omitting it, see domain/calendar.ts's Calendar Change Handling.
+ * Every event on the given calendar due for a sync pass — the Team Meeting,
+ * Informational, or Mentor/Teacher Calendar alike, all read through the same
+ * shared service account. Expanded (`singleEvents=true`) so a recurring
+ * weekly practice comes back as its individual occurrences with real
+ * start/end times, not one master event with a recurrence rule.
+ * `showDeleted=true` is how a cancellation is detected — Google reports it
+ * as `status: "cancelled"` rather than simply omitting it, see
+ * domain/calendar.ts's Calendar Change Handling.
  */
-export async function fetchTeamCalendarEvents(
+export async function fetchCalendarEvents(
   calendarId: string,
   now: Date = new Date()
 ): Promise<RawCalendarEvent[]> {

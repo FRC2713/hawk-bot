@@ -10,6 +10,7 @@ import {
   renderNewLine,
   renderRemovedLine,
   resolveWeeklySummaryTiming,
+  upcomingTwoWeekRange,
   upcomingWeekRange,
   weeklySummaryChangedFields,
   type WeeklySummaryEventInfo,
@@ -113,6 +114,14 @@ test("posting mid-week rolls forward to the following Monday", () => {
   assert.equal(range.start.toISOString(), "2026-01-12T00:00:00.000Z");
 });
 
+test("the Mentor/Teacher span starts the same Monday as the Team Meeting week, but covers two weeks", () => {
+  const postedAt = new Date("2026-01-04T12:00:00Z"); // Sunday
+  const oneWeek = upcomingWeekRange(postedAt);
+  const twoWeeks = upcomingTwoWeekRange(postedAt);
+  assert.equal(twoWeeks.start.toISOString(), oneWeek.start.toISOString());
+  assert.equal(twoWeeks.end.toISOString(), "2026-01-19T00:00:00.000Z");
+});
+
 test("a date within the week range is within it; the boundaries and outside are not", () => {
   const range = {
     start: new Date("2026-01-05T00:00:00Z"),
@@ -213,6 +222,28 @@ test("an empty week says so rather than showing a bare header", () => {
     entries: [],
   });
   assert.match(message, /nothing/i);
+});
+
+test("a custom label replaces 'This Week', but the date range still shows", () => {
+  const message = assembleWeeklySummaryMessage({
+    weekStart: new Date("2026-01-05T00:00:00Z"),
+    weekEnd: new Date("2026-01-12T00:00:00Z"),
+    entries: [],
+    label: "Informational Calendar",
+  });
+  assert.match(message, /^\*Informational Calendar\* — /);
+  assert.doesNotMatch(message, /This Week/);
+  assert.match(message, /Jan 5.*Jan 11/);
+});
+
+test("a custom emptyText replaces the default 'nothing this week' line", () => {
+  const message = assembleWeeklySummaryMessage({
+    weekStart: new Date("2026-01-05T00:00:00Z"),
+    weekEnd: new Date("2026-01-19T00:00:00Z"),
+    entries: [],
+    emptyText: "_Nothing on the Mentor/Teacher Calendar these two weeks._",
+  });
+  assert.match(message, /these two weeks/);
 });
 
 test("no changed fields when the snapshot and current state match", () => {
