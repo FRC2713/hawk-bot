@@ -23,7 +23,10 @@ export type SettingKey =
   | "informational_calendar_id"
   | "mentor_calendar_id"
   | "mentor_summary_channel"
-  | "mentor_summary_time";
+  | "mentor_summary_time"
+  | "no_response_alert_channel"
+  | "no_response_alert_time"
+  | "no_response_alert_threshold";
 
 export type Setting = {
   key: SettingKey;
@@ -133,6 +136,29 @@ export const SETTINGS: readonly Setting[] = [
       /^(SUN|MON|TUE|WED|THU|FRI|SAT)\s+([01]\d|2[0-3]):([0-5]\d)$/i.test(
         v.trim()
       ),
+  },
+  {
+    key: "no_response_alert_channel",
+    summary:
+      "Private channel the No Response Alert Report posts to — set to enable it, unset to disable",
+    expects: "a channel id like C0123456789 (not the #name)",
+    validate: (v) => CHANNEL_ID.test(v.trim()),
+  },
+  {
+    key: "no_response_alert_time",
+    summary: "When the No Response Alert Report goes out",
+    expects: "a day and 24-hour time, e.g. MON 09:00",
+    validate: (v) =>
+      /^(SUN|MON|TUE|WED|THU|FRI|SAT)\s+([01]\d|2[0-3]):([0-5]\d)$/i.test(
+        v.trim()
+      ),
+  },
+  {
+    key: "no_response_alert_threshold",
+    summary:
+      "How many consecutive No Responses on Team Meetings triggers a flag",
+    expects: "a whole number of meetings, e.g. 3",
+    validate: (v) => /^\d+$/.test(v.trim()) && Number(v.trim()) > 0,
   },
 ];
 

@@ -128,3 +128,29 @@ test("the mentor summary time is a day plus a 24-hour time, same shape as the we
   assert.equal(checkSetting("mentor_summary_time", "SUN 12:00").ok, true);
   assert.equal(checkSetting("mentor_summary_time", "Sunday 12:00").ok, false);
 });
+
+test("the no response alert channel is a channel id like any other channel setting", () => {
+  assert.equal(
+    checkSetting("no_response_alert_channel", "C0123456789").ok,
+    true
+  );
+  assert.equal(
+    checkSetting("no_response_alert_channel", "#admin-ra").ok,
+    false
+  );
+});
+
+test("the no response alert time is a day plus a 24-hour time, same shape as the weekly summary time", () => {
+  assert.equal(checkSetting("no_response_alert_time", "MON 09:00").ok, true);
+  assert.equal(
+    checkSetting("no_response_alert_time", "Monday 09:00").ok,
+    false
+  );
+});
+
+test("the no response alert threshold is a positive whole number of meetings", () => {
+  assert.equal(checkSetting("no_response_alert_threshold", "3").ok, true);
+  assert.equal(checkSetting("no_response_alert_threshold", "0").ok, false);
+  assert.equal(checkSetting("no_response_alert_threshold", "2.5").ok, false);
+  assert.equal(checkSetting("no_response_alert_threshold", "three").ok, false);
+});

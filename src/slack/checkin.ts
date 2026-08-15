@@ -1,5 +1,6 @@
 import type { WebClient } from "@slack/web-api";
 import type { EventRow } from "../db/repo.js";
+import { fetchChannelRoster } from "./roster.js";
 
 /**
  * Seeded on every Check-in Post so a team member can just click rather than
@@ -90,8 +91,7 @@ export async function postCheckinPost(
     await client.reactions.add({ channel, timestamp: ts, name });
   }
 
-  const members = await client.conversations.members({ channel });
-  const roster = (members.members ?? []).filter((id) => id !== botUserId);
+  const roster = await fetchChannelRoster(client, channel, botUserId);
 
   return { channel, ts, roster };
 }

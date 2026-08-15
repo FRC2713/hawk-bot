@@ -51,6 +51,7 @@ import { syncAttendanceFromSlack } from "./slack/attendanceEvents.js";
 import { listHawkBotAdmins } from "./slack/authz.js";
 import { openDirectMessage } from "./slack/dm.js";
 import { postDueMentorSummary } from "./mentorSummary.js";
+import { postDueNoResponseAlert } from "./noResponseAlert.js";
 import type { SettingKey } from "./domain/settings.js";
 import {
   postDueWeeklySummary,
@@ -421,6 +422,7 @@ export async function runSchedulerTick(): Promise<void> {
     await syncCalendars(client);
     await postDueWeeklySummary(client);
     await postDueMentorSummary(client);
+    await postDueNoResponseAlert(client, botUserId);
     await postDueCheckins(client, botUserId);
     await finalizeDueCutoffs(client, botUserId);
   } catch (err) {
