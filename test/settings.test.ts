@@ -93,3 +93,11 @@ test("Slack's escaped usergroup mention is unwrapped to the bare handle", () => 
   if (!result.ok) return;
   assert.equal(result.value, "hawkbot-admins");
 });
+
+test("the weekly summary time is a day plus a 24-hour time", () => {
+  assert.equal(checkSetting("weekly_summary_time", "SUN 12:00").ok, true);
+  assert.equal(checkSetting("weekly_summary_time", "sun 12:00").ok, true);
+  assert.equal(checkSetting("weekly_summary_time", "Sunday 12:00").ok, false);
+  assert.equal(checkSetting("weekly_summary_time", "SUN 25:00").ok, false);
+  assert.equal(checkSetting("weekly_summary_time", "12:00").ok, false);
+});

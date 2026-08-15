@@ -24,6 +24,7 @@ import { fetchTeamCalendarEvents } from "./calendar/client.js";
 import {
   anyInstallation,
   getAttendanceForEvent,
+  getEvent,
   getEventByCalendarId,
   getRoster,
   getSetting,
@@ -48,6 +49,10 @@ import {
 import { syncAttendanceFromSlack } from "./slack/attendanceEvents.js";
 import { listHawkBotAdmins } from "./slack/authz.js";
 import { openDirectMessage } from "./slack/dm.js";
+import {
+  postDueWeeklySummary,
+  reflectWeeklySummaryChange,
+} from "./weeklySummary.js";
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -91,9 +96,11 @@ function toMappedEvent(row: EventRow): MappedEvent {
 
 /**
  * Pulls the Team Meeting Calendar, applies Meeting Type derivation, and runs
- * Calendar Change Handling for anything already tracked. Multi-Day entries
- * are recognized (via mapCalendarEvent) but skipped entirely — deferred
- * past v1, see CONTEXT.md.
+ * Calendar Change Handling for anything already tracked, plus Weekly
+ * Summary Change Reflection for anything within the current week. Multi-Day
+ * entries are now tracked as Events too (for the Weekly Summary listing —
+ * see CONTEXT.md, Weekly Summary Post) but never get a Check-in Post or
+ * attendance tracking, which stays deferred.
  */
 async function syncCalendar(client: WebClient): Promise<void> {
   const calendarId = getSetting("google_calendar_id");
@@ -113,13 +120,12 @@ async function syncCalendar(client: WebClient): Promise<void> {
       });
       continue;
     }
-    if (mapped.meetingType === "multi_day") continue;
 
     const existing = getEventByCalendarId(mapped.calendarEventId);
 
     if (!existing) {
       if (mapped.cancelled) continue;
-      insertEvent({
+      const newId = insertEvent({
         calendarEventId: mapped.calendarEventId,
         source: "google_calendar",
         title: mapped.title,
@@ -131,6 +137,8 @@ async function syncCalendar(client: WebClient): Promise<void> {
         checkinAt: checkinPostTime(mapped, offsets).toISOString(),
         reactionCutoffAt: reactionCutoff(mapped).toISOString(),
       });
+      const newRow = getEvent(newId);
+      if (newRow) await reflectWeeklySummaryChange(client, newRow, "changed");
       continue;
     }
 
@@ -144,6 +152,7 @@ async function syncCalendar(client: WebClient): Promise<void> {
       if (existing.checkin_posted_at) {
         await announceEventRemoved(client, existing);
       }
+      await reflectWeeklySummaryChange(client, existing, "removed");
       continue;
     }
 
@@ -161,6 +170,8 @@ async function syncCalendar(client: WebClient): Promise<void> {
     if (existing.checkin_posted_at) {
       await announceEventEdited(client, existing, change.changedFields);
     }
+    const updated = getEvent(existing.id);
+    if (updated) await reflectWeeklySummaryChange(client, updated, "changed");
   }
 }
 
@@ -363,6 +374,7 @@ export async function runSchedulerTick(): Promise<void> {
 
   try {
     await syncCalendar(client);
+    await postDueWeeklySummary(client);
     await postDueCheckins(client, botUserId);
     await finalizeDueCutoffs(client, botUserId);
   } catch (err) {

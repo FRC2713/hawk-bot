@@ -18,7 +18,8 @@ export type SettingKey =
   | "checkin_offset_allday_time"
   | "default_all_day_hours"
   | "attendance_report_channel"
-  | "admin_usergroup";
+  | "admin_usergroup"
+  | "weekly_summary_time";
 
 export type Setting = {
   key: SettingKey;
@@ -90,6 +91,15 @@ export const SETTINGS: readonly Setting[] = [
     // live lookup (handle -> Slack's internal group id) happens as an I/O
     // step in commands/config.ts, which is what actually gets stored.
     validate: (v) => /^[a-zA-Z0-9_-]{1,80}$/.test(v.trim()),
+  },
+  {
+    key: "weekly_summary_time",
+    summary: "When the Weekly Summary Post goes out",
+    expects: "a day and 24-hour time, e.g. SUN 12:00",
+    validate: (v) =>
+      /^(SUN|MON|TUE|WED|THU|FRI|SAT)\s+([01]\d|2[0-3]):([0-5]\d)$/i.test(
+        v.trim()
+      ),
   },
 ];
 
