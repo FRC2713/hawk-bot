@@ -249,11 +249,12 @@ export function checkSetting(key: string, value: string): SettingCheck {
   if (!trimmed) {
     return { ok: false, reason: `\`${setting.key}\` needs ${setting.expects}` };
   }
-  // Slack turns a typed `#general` into `<#C0123|general>`, and a typed
-  // `@handle` into `<!subteam^S0123|@handle>`, when the command is escaped.
-  // Unwrap either rather than telling a coach their own channel/group is
-  // wrong. Both are no-ops for a value that doesn't match their pattern.
-  const unwrapped = unwrapUserGroupHandle(unwrapChannel(trimmed));
+  // Slack turns a typed `#general` into `<#C0123|general>`, a typed `@handle`
+  // into `<!subteam^S0123|@handle>`, and a typed email into
+  // `<mailto:a@b.org|a@b.org>`, when the command is escaped. Unwrap all three
+  // rather than telling a coach their own channel/group/address is wrong. Each
+  // is a no-op for a value that doesn't match its pattern.
+  const unwrapped = unwrapEmail(unwrapUserGroupHandle(unwrapChannel(trimmed)));
   if (!setting.validate(unwrapped)) {
     return {
       ok: false,
@@ -266,6 +267,21 @@ export function checkSetting(key: string, value: string): SettingCheck {
 /** `<#C0123456789|general>` → `C0123456789`; anything else is returned as is. */
 export function unwrapChannel(value: string): string {
   const match = /^<#([CG][A-Z0-9]+)(\|[^>]*)?>$/.exec(value.trim());
+  return match?.[1] ?? value.trim();
+}
+
+/**
+ * `<mailto:calendar@team.org|calendar@team.org>` → `calendar@team.org`;
+ * anything else is returned as is.
+ *
+ * Slack linkifies anything that looks like an address, so a setting that takes
+ * an email never receives what was typed. The rejection this prevents is a
+ * genuinely maddening one: Slack *renders* the escaped form back as the bare
+ * address, so the error message quotes a value identical to the one the coach
+ * typed and appears to reject it for no reason at all.
+ */
+export function unwrapEmail(value: string): string {
+  const match = /^<mailto:([^|>]+)(\|[^>]*)?>$/.exec(value.trim());
   return match?.[1] ?? value.trim();
 }
 
