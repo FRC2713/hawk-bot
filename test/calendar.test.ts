@@ -6,6 +6,7 @@ import {
   mapCalendarEvent,
   reactionCutoff,
   resolveCheckinOffsets,
+  upcomingEvents,
 } from "../src/domain/calendar.js";
 
 // Midnight/day-before math reads wall-clock dates via local Date methods,
@@ -159,4 +160,44 @@ test("a set Check-in Post Timing overrides only the setting that was set", () =>
     allDayHour: 9,
     allDayMinute: 30,
   });
+});
+
+const now = new Date("2026-01-06T00:00:00.000Z");
+const soon = mapCalendarEvent({
+  ...hourlyRaw,
+  id: "soon",
+  start: { dateTime: "2026-01-06T12:00:00.000Z" },
+  end: { dateTime: "2026-01-06T13:00:00.000Z" },
+});
+const later = mapCalendarEvent({
+  ...hourlyRaw,
+  id: "later",
+  start: { dateTime: "2026-01-08T12:00:00.000Z" },
+  end: { dateTime: "2026-01-08T13:00:00.000Z" },
+});
+const past = mapCalendarEvent({
+  ...hourlyRaw,
+  id: "past",
+  start: { dateTime: "2026-01-01T12:00:00.000Z" },
+  end: { dateTime: "2026-01-01T13:00:00.000Z" },
+});
+const cancelled = mapCalendarEvent({
+  ...hourlyRaw,
+  id: "cancelled",
+  status: "cancelled",
+  start: { dateTime: "2026-01-07T12:00:00.000Z" },
+  end: { dateTime: "2026-01-07T13:00:00.000Z" },
+});
+
+test("upcomingEvents drops past and cancelled events, earliest first", () => {
+  assert.deepEqual(
+    upcomingEvents([later, past, cancelled, soon], now, 3).map(
+      (e) => e.calendarEventId
+    ),
+    ["soon", "later"]
+  );
+});
+
+test("upcomingEvents caps at count", () => {
+  assert.equal(upcomingEvents([soon, later], now, 1).length, 1);
 });
