@@ -49,7 +49,63 @@ carries the bot token. Losing it costs one reinstall by an admin — keep a copy
 anyway, so that reinstall happens when you choose it rather than when a deploy
 surprises you.
 
-## 3. Run it
+## 3. The Google service account
+
+Hawk Bot reads the team's calendars as a **service account** — a Google
+identity with no human behind it and no mailbox. It has no access to anything
+until a calendar is explicitly shared with it, which is three steps, all of
+them easy to do partially:
+
+1. **Create the account and its key.** Google Cloud console → _IAM & Admin →
+   Service Accounts → Create_. Then _Keys → Add key → Create new key → JSON_.
+   The console offers the private key exactly once, at creation.
+2. **Enable the Calendar API in that same project.** _APIs & Services →
+   Library → Google Calendar API → Enable_. Creating a service account does
+   not enable any API; a project with the API off returns 403 to a perfectly
+   valid credential.
+3. **Share each calendar with the account's own address.** Open the calendar
+   in Google Calendar → _Settings and sharing → Share with specific people or
+   groups → Add people_, paste the service account's `client_email` (it looks
+   like `hawk-bot@your-project.iam.gserviceaccount.com`), and set the
+   permission to **See all event details**. "See only free/busy" hides titles
+   and times, which is not enough.
+
+Then encode the key file into the environment:
+
+```sh
+base64 -i service-account.json | tr -d '\n'   # GOOGLE_SERVICE_ACCOUNT_KEY_BASE64
+```
+
+The base64 step is not decoration: the JSON's `private_key` contains literal
+newlines and cannot live on one line of `.env` un-encoded.
+
+Which calendars to read is a workspace setting, not a credential — a HawkBot
+Admin sets them from Slack once the bot is installed:
+
+```
+/hawkbot config set team_meeting_calendar_id  <id>   # required
+/hawkbot config set informational_calendar_id <id>   # optional
+/hawkbot config set mentor_calendar_id        <id>   # optional
+```
+
+A calendar's id is on the same _Settings and sharing_ page, under _Integrate
+calendar_. For a secondary calendar it looks like an address ending in
+`@group.calendar.google.com`.
+
+### When it doesn't work
+
+`/hawkbot calendar` is the smoke test. It prints the address it authenticates
+as — the one that has to appear in the sharing dialog — then fetches live from
+Google for each configured calendar and reports what came back. Sharing,
+API-not-enabled, and rejected-credential failures each get a distinct
+explanation there, because Google's own wording does not distinguish them:
+a calendar that was never shared comes back as a bare `Not Found`, identical
+to a calendar id that doesn't exist.
+
+`/hawkbot status` shows the last failure per scheduler step, so a sync that
+broke between smoke tests is visible without host log access.
+
+## 4. Run it
 
 ```sh
 docker compose up -d
@@ -68,7 +124,7 @@ curl -s http://localhost:3000/health
 `{"status":"ok","installed":false,...}` before the app is installed is the
 expected state — running and waiting.
 
-## 4. Install into the workspace
+## 5. Install into the workspace
 
 A workspace admin opens `https://<public-url>/slack/install` once, approves the
 scopes, and the bot is live. `/hawkbot help` in any channel confirms it.
