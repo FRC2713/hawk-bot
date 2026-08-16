@@ -46,6 +46,12 @@ src/crypto.ts           AES-256-GCM for the stored installation
 src/health.ts           GET /health — touches SQLite so a bad volume shows here
 src/commands/           the command surface (see below)
 src/domain/settings.ts  which workspace settings exist, and what is a valid value
+src/domain/calendarAccess.ts
+                        reads the service account key, and turns a refusal from
+                        Google into the fix for it. Pure. Its header says why a
+                        raw "Not Found" must never reach a mentor.
+src/calendar/client.ts  the only Google I/O. Pages events.list to the end —
+                        the default page size is 250 and truncates in silence.
 src/db/client.ts        opens SQLite, applies migrations/ on boot
 src/db/repo.ts          every SQL statement in the app
 src/slack/app.ts        Bolt wiring, BOT_SCOPES, OAuth install pages

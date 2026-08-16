@@ -1,4 +1,7 @@
-import { fetchCalendarEvents } from "../calendar/client.js";
+import {
+  fetchCalendarEvents,
+  serviceAccountEmail,
+} from "../calendar/client.js";
 import { getSetting } from "../db/repo.js";
 import { mapCalendarEvent, upcomingEvents } from "../domain/calendar.js";
 import { formatWeeklySummaryLine } from "../domain/weeklySummary.js";
@@ -52,23 +55,44 @@ async function previewOne(
 }
 
 /**
- * Manual smoke test for the Google Calendar connection: the next few events
- * on each configured calendar, fetched live from Google rather than read
- * back from the synced database. A bad service-account credential or a
- * calendar that was never shared with it shows up here as an inline error —
- * in Slack, immediately — rather than only as a scheduler-tick log line an
- * operator without host access can't reach.
+ * Who Hawk Bot authenticates to Google as — the address a mentor has to put
+ * in the calendar's sharing dialog.
+ *
+ * It is the first line of the reply because it is the answer to the most
+ * common failure and it is otherwise unobtainable: it lives inside a base64
+ * credential that only exists in a GitHub secret and a 600-mode .env on a
+ * host nobody SSHes into. Every "the bot can't see the calendar" report is
+ * one lookup away from resolved once this is on screen.
+ */
+function identityLine(): string {
+  try {
+    return `Authenticating to Google as \`${serviceAccountEmail()}\`\n_Each calendar below must be shared with that address ("See all event details")._`;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return `:warning: Can't read the service account credential.\n${message}`;
+  }
+}
+
+/**
+ * Manual smoke test for the Google Calendar connection: who it connects as,
+ * and the next few events on each configured calendar, fetched live from
+ * Google rather than read back from the synced database. A bad
+ * service-account credential or a calendar that was never shared with it
+ * shows up here as an inline error — in Slack, immediately — rather than
+ * only as a scheduler-tick log line an operator without host access can't
+ * reach.
  */
 export const calendar: Command = {
   name: "calendar",
   summary: "Preview the next few events on each connected calendar",
   adminOnly: true,
   async run() {
+    const identity = identityLine();
     const sections = await Promise.all(
       CALENDAR_SOURCES.map(({ settingKey, label }) =>
         previewOne(settingKey, label)
       )
     );
-    return { text: sections.join("\n\n") };
+    return { text: [identity, ...sections].join("\n\n") };
   },
 };
