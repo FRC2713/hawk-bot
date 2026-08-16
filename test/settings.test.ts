@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  unwrapEmail,
   isCalendarId,
   SETTINGS,
   checkSetting,
@@ -273,4 +274,42 @@ test("the impersonated Workspace user is validated as an email address", () => {
     ).ok,
     true
   );
+});
+
+// Slack linkifies anything address-shaped, so a setting that takes an email
+// never receives what was typed. Worse, Slack renders the escaped form back as
+// the bare address, so the rejection quotes a value identical to what the coach
+// typed — the error appears to be nonsense, which is how this got shipped.
+test("Slack's escaped email is unwrapped rather than rejected", () => {
+  assert.equal(
+    unwrapEmail("<mailto:calendar@team.org|calendar@team.org>"),
+    "calendar@team.org"
+  );
+  assert.equal(unwrapEmail("<mailto:calendar@team.org>"), "calendar@team.org");
+  // A no-op for anything that isn't Slack's wrapper.
+  assert.equal(unwrapEmail("calendar@team.org"), "calendar@team.org");
+  assert.equal(unwrapEmail("primary"), "primary");
+
+  for (const typed of [
+    "calendar@redhawkrobotics.org",
+    "<mailto:calendar@redhawkrobotics.org|calendar@redhawkrobotics.org>",
+    "<mailto:calendar@redhawkrobotics.org>",
+  ]) {
+    const result = checkSetting("google_impersonated_user", typed);
+    assert.equal(result.ok, true, `rejected: ${typed}`);
+    if (!result.ok) return;
+    assert.equal(result.value, "calendar@redhawkrobotics.org");
+  }
+});
+
+// Calendar ids are addresses too, so Slack escapes them identically — the same
+// bug was one paste away from hitting the setting that matters most.
+test("Slack's escaped email is unwrapped for calendar ids too", () => {
+  const result = checkSetting(
+    "team_meeting_calendar_id",
+    "<mailto:team@group.calendar.google.com|team@group.calendar.google.com>"
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value, "team@group.calendar.google.com");
 });

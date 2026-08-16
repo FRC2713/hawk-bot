@@ -145,7 +145,7 @@ function identityLine(): string {
   }
 
   return [
-    `Authenticating to Google as \`${identity.email}\``,
+    `Authenticating to Google as \`${identity.email}\` — *delegation is off* (\`google_impersonated_user\` is not set).`,
     `_Each calendar below must be shared with that address ("See all event details")._`,
     identity.clientId
       ? `_If your calendars live in a Google Workspace that refuses to share with an outside account, use delegation instead: \`/hawkbot config set google_impersonated_user <a Workspace address>\`, after an admin authorizes client id \`${identity.clientId}\` for \`https://www.googleapis.com/auth/calendar.readonly\` under Admin console → Security → API controls → Domain-wide delegation._`
