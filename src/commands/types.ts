@@ -40,7 +40,7 @@ export type Command = {
   name: string;
   /** Alternate spellings people reach for. Kept short on purpose. */
   aliases?: readonly string[];
-  /** One line, shown in `/hawk help`. */
+  /** One line, shown in `/hawkbot help`. */
   summary: string;
   /** Argument shape, shown when the command is misused. */
   usage?: string;

@@ -62,7 +62,7 @@ src/slack/home.ts       the App Home view, rendered from the command registry
 capability is a file in `src/commands/` plus a line in that array — and
 nothing else, deliberately.
 
-`src/commands/parse.ts` is pure and tested: bare `/hawk` means `help`,
+`src/commands/parse.ts` is pure and tested: bare `/hawkbot` means `help`,
 subcommand names are case-insensitive, `rest` keeps the original casing of the
 arguments. Handlers get a parsed `CommandContext` and return a `CommandReply`;
 they never touch `ack()` or Slack's response payloads.

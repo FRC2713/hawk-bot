@@ -71,7 +71,7 @@ expected state — running and waiting.
 ## 4. Install into the workspace
 
 A workspace admin opens `https://<public-url>/slack/install` once, approves the
-scopes, and the bot is live. `/hawk help` in any channel confirms it.
+scopes, and the bot is live. `/hawkbot help` in any channel confirms it.
 
 Reinstalling after a scope change is the same URL. Slack does not grant new
 scopes to an existing installation on its own — if a new command comes back

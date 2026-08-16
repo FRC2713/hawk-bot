@@ -7,7 +7,7 @@ import type { Command } from "./types.js";
 import { whoami } from "./whoami.js";
 
 /**
- * Every subcommand `/hawk` accepts, in the order `help` lists them.
+ * Every subcommand `/hawkbot` accepts, in the order `help` lists them.
  *
  * Adding a capability to Hawk Bot is adding a file next to these and a line
  * here. Nothing else knows the list: the router resolves against it, `help`

@@ -46,7 +46,7 @@ test("aliases resolve, unknown names do not", () => {
 test("help lists every command, and marks the admin-only ones", () => {
   const text = renderHelp(
     [fake("status"), fake("config", { adminOnly: true })],
-    "/hawk"
+    "/hawkbot"
   );
   assert.match(text, /status\s+does status/);
   assert.match(text, /config\s+does config\s+\(admins\)/);

@@ -28,20 +28,21 @@ test("Slack's escaped channel mention is unwrapped rather than rejected", () => 
 });
 
 test("a blank value never lands in the database", () => {
-  assert.equal(checkSetting("timezone_note", "   ").ok, false);
+  assert.equal(checkSetting("home_note", "   ").ok, false);
 });
 
 test("free text is bounded", () => {
-  assert.equal(checkSetting("timezone_note", "Tue/Thu 6-9pm").ok, true);
-  assert.equal(checkSetting("timezone_note", "x".repeat(201)).ok, false);
+  assert.equal(checkSetting("home_note", "Tue/Thu 6-9pm").ok, true);
+  assert.equal(checkSetting("home_note", "x".repeat(201)).ok, false);
 });
 
 test("the Team Meeting Calendar id just needs to be non-blank", () => {
   assert.equal(
-    checkSetting("google_calendar_id", "team@group.calendar.google.com").ok,
+    checkSetting("team_meeting_calendar_id", "team@group.calendar.google.com")
+      .ok,
     true
   );
-  assert.equal(checkSetting("google_calendar_id", "   ").ok, false);
+  assert.equal(checkSetting("team_meeting_calendar_id", "   ").ok, false);
 });
 
 test("the Hourly check-in offset is a positive whole number of hours", () => {

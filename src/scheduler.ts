@@ -1,4 +1,5 @@
 import { WebClient } from "@slack/web-api";
+import { SLASH_COMMAND } from "./brand.js";
 import {
   describeVerificationFailure,
   formatAttendanceReportSummary,
@@ -111,7 +112,7 @@ const CALENDAR_SOURCES: readonly {
   settingKey: SettingKey;
   calendarRole: EventCalendarRole;
 }[] = [
-  { settingKey: "google_calendar_id", calendarRole: "team_meeting" },
+  { settingKey: "team_meeting_calendar_id", calendarRole: "team_meeting" },
   { settingKey: "informational_calendar_id", calendarRole: "informational" },
   { settingKey: "mentor_calendar_id", calendarRole: "mentor" },
 ];
@@ -251,7 +252,7 @@ async function notifyVerificationFailure(
     `⚠️ Reaction Cutoff Verification failed for *${event.title}* (Event #${event.id}).`,
     `Reason: ${reason}`,
     "The Check-in Post was left in place — nothing was deleted or finalized.",
-    `Once you understand what went wrong, run \`/hawk event retry-cutoff ${event.id}\`.`,
+    `Once you understand what went wrong, run \`${SLASH_COMMAND} event retry-cutoff ${event.id}\`.`,
   ].join("\n");
 
   for (const userId of await listHawkBotAdmins(client)) {
@@ -331,7 +332,7 @@ async function postEventAttendanceReport(
 /**
  * Resync, verify, and — only on success — credit hours, delete the
  * Check-in Post, finalize, and post the Event Attendance Report. Shared by
- * the scheduler's normal sweep and the manual `/hawk event retry-cutoff`
+ * the scheduler's normal sweep and the manual `/hawkbot event retry-cutoff`
  * command, so a retry is exactly the same flow run again on demand.
  */
 export async function attemptEventCutoff(

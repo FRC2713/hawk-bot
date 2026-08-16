@@ -1,7 +1,7 @@
 # hawk-bot
 
 Hawk Bot is FRC 2713 Red Hawk Robotics' team assistant in Slack: one slash
-command, `/hawk`, behind which the team's own tooling accumulates.
+command, `/hawkbot`, behind which the team's own tooling accumulates.
 
 It is deliberately the _public_ bot of the pair. Its sibling
 [hawk-mod](https://github.com/FRC2713/hawk-mod) exists to watch direct messages
@@ -15,15 +15,15 @@ Run by [hawk_suite](https://github.com/FRC2713/hawk_suite) at
 
 ## What it does today
 
-| Command        | Who    | What                                             |
-| -------------- | ------ | ------------------------------------------------ |
-| `/hawk help`   | anyone | Lists every command                              |
-| `/hawk status` | anyone | Uptime, install state, how much is configured    |
-| `/hawk whoami` | anyone | Your Slack id, and whether you count as an admin |
-| `/hawk config` | admins | Show or change workspace settings                |
+| Command           | Who    | What                                             |
+| ----------------- | ------ | ------------------------------------------------ |
+| `/hawkbot help`   | anyone | Lists every command                              |
+| `/hawkbot status` | anyone | Uptime, install state, how much is configured    |
+| `/hawkbot whoami` | anyone | Your Slack id, and whether you count as an admin |
+| `/hawkbot config` | admins | Show or change workspace settings                |
 
 Plus an App Home tab that renders itself from the same command list, and a
-reply when someone @-mentions the bot pointing them at `/hawk help`.
+reply when someone @-mentions the bot pointing them at `/hawkbot help`.
 
 That is the floor, not the ceiling. The point of this repo's shape is that
 adding the next capability — practice reminders, build-season checklists, an

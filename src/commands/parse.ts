@@ -1,7 +1,7 @@
 import type { Command } from "./types.js";
 
 export type ParsedCommand = {
-  /** Lowercased subcommand name. Bare `/hawk` means `help`. */
+  /** Lowercased subcommand name. Bare `/hawkbot` means `help`. */
   name: string;
   args: string[];
   /** Everything after the name, verbatim — for commands that take prose. */
@@ -13,8 +13,8 @@ export type ParsedCommand = {
  * arguments.
  *
  * Pure, and the only place the shape of a command line is decided, so the
- * cases people actually hit — a bare `/hawk`, a trailing space from
- * autocomplete, `/hawk HELP` — are settled once and tested, rather than
+ * cases people actually hit — a bare `/hawkbot`, a trailing space from
+ * autocomplete, `/hawkbot HELP` — are settled once and tested, rather than
  * re-derived in each handler.
  */
 export function parseCommandText(text: string | undefined): ParsedCommand {

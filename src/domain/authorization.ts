@@ -1,6 +1,6 @@
 /**
  * HawkBot Admin: the single decision behind every admin-gated capability
- * (`/hawk config`, `/hawk event create`, the season CSV export, and the
+ * (`/hawkbot config`, `/hawkbot event create`, the season CSV export, and the
  * Reaction Cutoff Verification failure DM). Pure data and a pure function —
  * no Slack — so the rule, including the Owner fallback, is testable
  * without a live workspace. See ADR-0004 and CONTEXT.md, HawkBot Admin.
