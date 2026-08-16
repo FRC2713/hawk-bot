@@ -26,7 +26,9 @@ export type SettingKey =
   | "mentor_summary_time"
   | "no_response_alert_channel"
   | "no_response_alert_time"
-  | "no_response_alert_threshold";
+  | "no_response_alert_threshold"
+  | "student_usergroup"
+  | "mentor_usergroup";
 
 export type Setting = {
   key: SettingKey;
@@ -159,6 +161,22 @@ export const SETTINGS: readonly Setting[] = [
       "How many consecutive No Responses on Team Meetings triggers a flag",
     expects: "a whole number of meetings, e.g. 3",
     validate: (v) => /^\d+$/.test(v.trim()) && Number(v.trim()) > 0,
+  },
+  {
+    key: "student_usergroup",
+    summary:
+      "The Slack User Group holding the team's students — the No Response Alert Report only ever evaluates Students and Mentors",
+    expects: "a user group handle, e.g. hawk-students (with or without the @)",
+    // Format only, same as admin_usergroup — the live handle -> group id
+    // lookup happens as an I/O step in commands/config.ts.
+    validate: (v) => /^[a-zA-Z0-9_-]{1,80}$/.test(v.trim()),
+  },
+  {
+    key: "mentor_usergroup",
+    summary:
+      "The Slack User Group holding the team's mentors — the No Response Alert Report only ever evaluates Students and Mentors",
+    expects: "a user group handle, e.g. hawk-mentors (with or without the @)",
+    validate: (v) => /^[a-zA-Z0-9_-]{1,80}$/.test(v.trim()),
   },
 ];
 

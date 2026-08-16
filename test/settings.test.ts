@@ -155,3 +155,39 @@ test("the no response alert threshold is a positive whole number of meetings", (
   assert.equal(checkSetting("no_response_alert_threshold", "2.5").ok, false);
   assert.equal(checkSetting("no_response_alert_threshold", "three").ok, false);
 });
+
+test("the student usergroup accepts a plain handle, with or without a leading @", () => {
+  assert.equal(checkSetting("student_usergroup", "hawk-students").ok, true);
+  const result = checkSetting("student_usergroup", "@hawk-students");
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value, "hawk-students");
+});
+
+test("Slack's escaped usergroup mention is unwrapped for the student usergroup too", () => {
+  const result = checkSetting(
+    "student_usergroup",
+    "<!subteam^S0123456|@hawk-students>"
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value, "hawk-students");
+});
+
+test("the mentor usergroup accepts a plain handle, with or without a leading @", () => {
+  assert.equal(checkSetting("mentor_usergroup", "hawk-mentors").ok, true);
+  const result = checkSetting("mentor_usergroup", "@hawk-mentors");
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value, "hawk-mentors");
+});
+
+test("Slack's escaped usergroup mention is unwrapped for the mentor usergroup too", () => {
+  const result = checkSetting(
+    "mentor_usergroup",
+    "<!subteam^S0123456|@hawk-mentors>"
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.value, "hawk-mentors");
+});

@@ -6,34 +6,36 @@ import { log } from "../logger.js";
 const TTL_MS = 5 * 60 * 1000;
 
 /**
- * The HawkBot Admin group's member ids, for whichever group `admin_usergroup`
- * currently resolves to. Keyed by group id rather than a single slot, so
- * changing the setting is a cache miss rather than something that needs
- * explicit invalidation.
+ * Every Slack User Group's member ids this app has resolved recently, keyed
+ * by group id rather than a single slot. `admin_usergroup`,
+ * `student_usergroup`, and `mentor_usergroup` all resolve through this same
+ * cache, often within the same scheduler tick — a single-slot cache would
+ * have each one evict the last as soon as more than one usergroup setting
+ * existed.
  */
-let groupCache: { groupId: string; memberIds: Set<string>; at: number } | null =
-  null;
+const groupCache = new Map<string, { memberIds: Set<string>; at: number }>();
 
-async function groupMemberIds(
+/**
+ * Resolves one Slack User Group's member ids, 5-minute cached, stale-on-error.
+ * Shared by HawkBot Admin resolution here and Team Role resolution in
+ * `noResponseAlert.ts` — the cache is what keeps either from costing a live
+ * Slack round-trip per Roster member on every tick.
+ */
+export async function resolveUserGroupMemberIds(
   client: WebClient,
   groupId: string
 ): Promise<Set<string>> {
-  if (
-    groupCache &&
-    groupCache.groupId === groupId &&
-    Date.now() - groupCache.at < TTL_MS
-  ) {
-    return groupCache.memberIds;
-  }
+  const cached = groupCache.get(groupId);
+  if (cached && Date.now() - cached.at < TTL_MS) return cached.memberIds;
   try {
     const res = await client.usergroups.users.list({ usergroup: groupId });
     const memberIds = new Set(res.users ?? []);
-    groupCache = { groupId, memberIds, at: Date.now() };
+    groupCache.set(groupId, { memberIds, at: Date.now() });
     return memberIds;
   } catch (error) {
     // Stale-but-cached beats "everyone locked out because Slack hiccupped".
-    if (groupCache?.groupId === groupId) return groupCache.memberIds;
-    log.warn("could not resolve HawkBot Admin group membership", {
+    if (cached) return cached.memberIds;
+    log.warn("could not resolve user group membership", {
       groupId,
       error: String(error),
     });
@@ -44,7 +46,9 @@ async function groupMemberIds(
 /** The `admin_usergroup` setting's member set, or empty if it isn't set yet. */
 function configuredGroupMemberIds(client: WebClient): Promise<Set<string>> {
   const groupId = getSetting("admin_usergroup");
-  return groupId ? groupMemberIds(client, groupId) : Promise.resolve(new Set());
+  return groupId
+    ? resolveUserGroupMemberIds(client, groupId)
+    : Promise.resolve(new Set());
 }
 
 const ownerCache = new Map<string, { value: boolean; at: number }>();
@@ -96,7 +100,7 @@ export async function isHawkBotAdmin(
 export function forgetAdminStatus(userId?: string): void {
   if (userId) ownerCache.delete(userId);
   else ownerCache.clear();
-  groupCache = null;
+  groupCache.clear();
 }
 
 async function listWorkspaceOwners(client: WebClient): Promise<string[]> {

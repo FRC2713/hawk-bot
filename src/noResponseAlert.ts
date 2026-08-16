@@ -1,4 +1,6 @@
 import type { WebClient } from "@slack/web-api";
+import { SLASH_COMMAND } from "./brand.js";
+import { resolveTeamRole } from "./domain/authorization.js";
 import {
   DEFAULT_NO_RESPONSE_ALERT_TIMING,
   formatNoResponseAlertMessage,
@@ -18,7 +20,40 @@ import {
   insertNoResponseAlert,
 } from "./db/repo.js";
 import { log } from "./logger.js";
+import { listHawkBotAdmins, resolveUserGroupMemberIds } from "./slack/authz.js";
+import { openDirectMessage } from "./slack/dm.js";
 import { fetchChannelRoster } from "./slack/roster.js";
+
+/**
+ * DMs every HawkBot Admin that the No Response Alert Report's channel is
+ * configured but `student_usergroup` and/or `mentor_usergroup` isn't — the
+ * report refuses to guess at who counts as a student rather than risk
+ * naming a parent, alum, or other channel guest. Same DM-every-admin pattern
+ * as `notifyVerificationFailure` in `scheduler.ts`.
+ */
+async function notifyTeamRoleMisconfiguration(
+  client: WebClient,
+  missingKeys: readonly string[]
+): Promise<void> {
+  const plural = missingKeys.length > 1;
+  const text = [
+    `⚠️ The No Response Alert Report is configured to post, but ${missingKeys
+      .map((k) => `\`${k}\``)
+      .join(" and ")} ${plural ? "aren't" : "isn't"} set.`,
+    `It won't evaluate anyone until ${plural ? "both are" : "it is"} — set ${plural ? "them" : "it"} with \`${SLASH_COMMAND} config set <key> <value>\`.`,
+  ].join("\n");
+
+  for (const userId of await listHawkBotAdmins(client)) {
+    const dmChannel = await openDirectMessage(client, userId);
+    if (!dmChannel) continue;
+    await client.chat.postMessage({ channel: dmChannel, text }).catch((err) =>
+      log.error("could not DM Team Role misconfiguration", {
+        userId,
+        error: String(err),
+      })
+    );
+  }
+}
 
 /**
  * The No Response Alert Report: if due, flags anyone currently on the
@@ -48,10 +83,33 @@ export async function postDueNoResponseAlert(
   const now = new Date();
   if (!isWeeklySummaryDue(lastPostedAt, timing, now)) return;
 
+  const studentGroupId = getSetting("student_usergroup");
+  const mentorGroupId = getSetting("mentor_usergroup");
+  if (!studentGroupId || !mentorGroupId) {
+    const missingKeys = [
+      !studentGroupId ? "student_usergroup" : null,
+      !mentorGroupId ? "mentor_usergroup" : null,
+    ].filter((k): k is string => k !== null);
+    await notifyTeamRoleMisconfiguration(client, missingKeys);
+    // Same convention as a nobody-flagged week: a message_ts-null row still
+    // advances the due-check, so this recurs on the next due occurrence
+    // (weekly) rather than every 5-minute scheduler tick.
+    insertNoResponseAlert({ channel: channelId, messageTs: null });
+    log.warn("no response alert: student/mentor usergroup not configured", {
+      missingKeys,
+    });
+    return;
+  }
+
   const announceChannel = getSetting("announce_channel");
   if (!announceChannel) return;
 
   const roster = await fetchChannelRoster(client, announceChannel, botUserId);
+
+  const [studentMemberIds, mentorMemberIds] = await Promise.all([
+    resolveUserGroupMemberIds(client, studentGroupId),
+    resolveUserGroupMemberIds(client, mentorGroupId),
+  ]);
 
   const threshold = resolveNoResponseAlertThreshold(
     getSetting("no_response_alert_threshold")
@@ -59,6 +117,13 @@ export async function postDueNoResponseAlert(
 
   const flagged: FlaggedPerson[] = [];
   for (const userId of roster) {
+    const role = resolveTeamRole({
+      userId,
+      studentGroupMemberIds: studentMemberIds,
+      mentorGroupMemberIds: mentorMemberIds,
+    });
+    if (role === "skipped") continue;
+
     const recent: RecentMeetingOutcome[] = getRecentOutcomesForUser(
       userId,
       threshold

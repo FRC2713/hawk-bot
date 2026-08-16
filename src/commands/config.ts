@@ -43,10 +43,14 @@ export const config: Command = {
     const checked = checkSetting(key, valueParts.join(" "));
     if (!checked.ok) return { text: checked.reason };
 
-    // The HawkBot Admin group is set by handle, but membership checks need
-    // its Slack-internal id — resolved here, once, rather than on every
-    // admin check. See CONTEXT.md, HawkBot Admin.
-    if (checked.key === "admin_usergroup") {
+    // All three usergroup settings are set by handle, but membership checks
+    // need the Slack-internal group id — resolved here, once, rather than on
+    // every check. See CONTEXT.md, HawkBot Admin.
+    if (
+      checked.key === "admin_usergroup" ||
+      checked.key === "student_usergroup" ||
+      checked.key === "mentor_usergroup"
+    ) {
       const groups = await ctx.client.usergroups.list({});
       const match = groups.usergroups?.find(
         (g) => g.handle?.toLowerCase() === checked.value.toLowerCase()
