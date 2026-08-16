@@ -151,7 +151,12 @@ async function syncOneCalendar(
   calendarId: string,
   calendarRole: EventCalendarRole
 ): Promise<void> {
-  const raw = await fetchCalendarEvents(calendarId);
+  // Read as the impersonated Workspace user when delegation is configured —
+  // see calendar/client.ts, CalendarAccess, for why a Workspace often leaves
+  // no other option.
+  const raw = await fetchCalendarEvents(calendarId, {
+    subject: getSetting("google_impersonated_user"),
+  });
   const offsets = checkinOffsets();
 
   for (const rawEvent of raw) {

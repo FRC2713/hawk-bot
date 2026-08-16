@@ -92,6 +92,44 @@ A calendar's id is on the same _Settings and sharing_ page, under _Integrate
 calendar_. For a secondary calendar it looks like an address ending in
 `@group.calendar.google.com`.
 
+### When the calendars live in a Google Workspace
+
+Sharing with the service account is the simple path, and it works for calendars
+on ordinary Google accounts. A **Google Workspace** may refuse it — and refuse
+it invisibly. The sharing dialog accepts the service account's address, keeps
+displaying the entry at "See all event details" indefinitely, and the API still
+returns 404, because a service account in its own Cloud project is _outside_
+the Workspace domain. The dialog's own footnote is the only hint: "Your
+organization might limit how you can share your calendar outside your
+organization." It does not say when it has.
+
+The fix is **domain-wide delegation**: the service account reads calendars _as_
+a Workspace user, so it is an insider and no external sharing is involved.
+Nothing needs to be shared with the service account at all.
+
+1. Get the service account's numeric client id. `/hawkbot calendar` prints it —
+   it is otherwise buried in the base64 credential.
+2. A Workspace admin opens Admin console → Security → Access and data control →
+   **API controls → Domain-wide delegation → Add new**, pastes that client id,
+   and authorizes exactly one scope:
+   ```
+   https://www.googleapis.com/auth/calendar.readonly
+   ```
+3. Point the bot at a Workspace account that already sees the calendars — the
+   account that owns them is the natural choice:
+   ```
+   /hawkbot config set google_impersonated_user calendar@yourteam.org
+   ```
+
+`/hawkbot calendar` then reports "reading calendars as …" instead of
+"authenticating as …", and the question shifts from what the service account
+was shared to what that user can see. Unset the setting to go back to reading
+as the service account.
+
+Prefer this over loosening the Workspace's external sharing settings: that is
+an organization-wide change to every calendar in the domain, made to fix one
+integration.
+
 ### When it doesn't work
 
 `/hawkbot calendar` is the smoke test. It prints the address it authenticates

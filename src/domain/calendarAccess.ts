@@ -18,6 +18,14 @@
 export type ServiceAccountKey = {
   clientEmail: string;
   privateKey: string;
+  /**
+   * The account's numeric OAuth client id. Not needed to authenticate at all —
+   * it is here because it is the value a Workspace admin has to paste into
+   * Admin console → Security → API controls → Domain-wide delegation, and it
+   * is otherwise buried in a base64 secret nobody can read. Optional: older
+   * key files predate the field, and its absence must not stop a sync.
+   */
+  clientId?: string;
 };
 
 /** How the credential is produced, quoted in errors so the fix is at hand. */
@@ -119,7 +127,12 @@ export function parseServiceAccountKey(base64: string): ServiceAccountKey {
     );
   }
 
-  return { clientEmail, privateKey };
+  const clientId = key.client_id;
+  return {
+    clientEmail,
+    privateKey,
+    ...(typeof clientId === "string" && clientId ? { clientId } : {}),
+  };
 }
 
 /** What `describeCalendarAccessFailure` needs to name names. */
@@ -127,6 +140,8 @@ export type CalendarAccessContext = {
   calendarId: string;
   /** Undefined when the credential itself is what failed to load. */
   serviceAccountEmail?: string;
+  /** The Workspace user being impersonated, when delegation is configured. */
+  impersonating?: string | undefined;
 };
 
 /** What `readGoogleError` extracted, as `describeCalendarAccessFailure` wants it. */
@@ -174,12 +189,22 @@ export function describeCalendarAccessFailure(
     ].join("\n");
   }
 
+  if (status === 404 && ctx.impersonating) {
+    return [
+      `Google can't see the calendar \`${ctx.calendarId}\` as \`${ctx.impersonating}\`.`,
+      `Delegation is on, so sharing with the service account is no longer the question — the question is whether *${ctx.impersonating}* can see this calendar. Open Google Calendar signed in as that user and check it is in their list.`,
+      "If it is, the delegation grant itself may be missing the Calendar scope: Admin console → Security → Access and data control → API controls → Domain-wide delegation, and confirm `https://www.googleapis.com/auth/calendar.readonly` is listed against this client id.",
+      raw,
+    ].join("\n");
+  }
+
   if (status === 404) {
     return [
       `Google can't see the calendar \`${ctx.calendarId}\`.`,
-      `Google returns this for a calendar id that doesn't exist, for one that was never shared with ${sharedWith}, *and* for one an admin policy hides from this app — it can't tell you which.`,
+      `Google returns this for a calendar id that doesn't exist, for one that was never shared with ${sharedWith}, *and* for one a Workspace policy hides from this app — it can't tell you which.`,
       `First: open that calendar's Settings and sharing → "Share with specific people or groups", add ${sharedWith}, and give it at least "See all event details". A service account is not a member of the workspace; nothing is shared with it implicitly.`,
-      "If it is already shared — or the calendar is public, which needs no sharing at all — then sharing is not the problem. Check the inventory below: it says what this account can reach regardless of what is configured here.",
+      "If it is already shared — or the calendar is public, which needs no sharing at all — then sharing is not the problem, and a Google Workspace is the usual reason: it will accept an external principal in the sharing dialog, keep displaying the entry, and still refuse it through the API. The dialog even warns that your organization *might* limit external sharing; it does not tell you when it has.",
+      "The fix for that is delegation rather than sharing — set `google_impersonated_user` to a Workspace account that already sees these calendars, and the bot reads them as that user instead of as an outsider.",
       raw,
     ].join("\n");
   }

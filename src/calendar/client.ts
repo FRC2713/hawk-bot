@@ -6,6 +6,7 @@ import {
   parseServiceAccountKey,
   readGoogleError,
   type AccessibleCalendar,
+  type ServiceAccountKey,
 } from "../domain/calendarAccess.js";
 
 const CALENDAR_READONLY_SCOPE =
@@ -36,36 +37,79 @@ const MAX_RESULTS = 2500;
  */
 const MAX_PAGES = 20;
 
-let cachedClient: JWT | null = null;
-let cachedEmail: string | null = null;
+/**
+ * How to reach Google for one call.
+ *
+ * `subject` turns on domain-wide delegation: the service account stops acting
+ * as itself and acts *as* that Workspace user. This is not a nicety. A Google
+ * Workspace can accept an external principal in a calendar's sharing dialog,
+ * display the entry indefinitely, and still refuse it through the API — the
+ * share looks correct and returns 404, because a service account in its own
+ * Cloud project is outside the domain. Impersonating a user inside the domain
+ * sidesteps the external-sharing policy entirely: the calendars do not have to
+ * be shared with anything, because the bot is already that user.
+ *
+ * The alternative is loosening external sharing for the whole organization,
+ * which is a change to every calendar in it to fix one integration.
+ */
+export type CalendarAccess = {
+  /** A Workspace user to act as, e.g. `calendar@yourteam.org`. */
+  subject?: string | undefined;
+  /** Overridable only so the sync window is testable. */
+  now?: Date;
+};
 
-function serviceAccountClient(): JWT {
-  if (cachedClient) return cachedClient;
-  const { clientEmail, privateKey } = parseServiceAccountKey(
+// Keyed by subject: switching impersonation must not silently reuse a client
+// still authenticating as the previous identity, which would present as a
+// setting that appears to save and change nothing.
+const clientCache = new Map<string, JWT>();
+let cachedKey: ServiceAccountKey | null = null;
+
+function serviceAccountKey(): ServiceAccountKey {
+  cachedKey ??= parseServiceAccountKey(
     config().GOOGLE_SERVICE_ACCOUNT_KEY_BASE64
   );
-  cachedEmail = clientEmail;
-  cachedClient = new JWT({
+  return cachedKey;
+}
+
+function serviceAccountClient(subject?: string): JWT {
+  const cacheKey = subject ?? "";
+  const existing = clientCache.get(cacheKey);
+  if (existing) return existing;
+
+  const { clientEmail, privateKey } = serviceAccountKey();
+  const client = new JWT({
     email: clientEmail,
     key: privateKey,
     scopes: [CALENDAR_READONLY_SCOPE],
+    ...(subject ? { subject } : {}),
   });
-  return cachedClient;
+  clientCache.set(cacheKey, client);
+  return client;
 }
 
 /**
- * The address a calendar has to be shared with, which is the one fact an
- * operator needs and cannot get anywhere else — it lives inside a base64
- * credential nobody can read from Slack. Surfaced by `/hawkbot calendar`.
+ * Who Hawk Bot is to Google, for `/hawkbot calendar` to report.
  *
- * Throws the same actionable error as a sync would if the credential is
- * unreadable, rather than returning undefined and letting the caller report
- * a working setup.
+ * `clientId` is included because it is what a Workspace admin pastes into the
+ * Domain-wide delegation screen, and it exists nowhere an operator can reach —
+ * inside a base64 secret, in a 600-mode .env, on a host nobody SSHes into.
+ *
+ * Throws the same actionable error a sync would if the credential is
+ * unreadable, rather than returning undefined and letting a caller report a
+ * working setup.
  */
+export function serviceAccountIdentity(): {
+  email: string;
+  clientId: string | undefined;
+} {
+  const key = serviceAccountKey();
+  return { email: key.clientEmail, clientId: key.clientId };
+}
+
+/** Just the address, for the many callers that only need that. */
 export function serviceAccountEmail(): string {
-  if (cachedEmail) return cachedEmail;
-  return parseServiceAccountKey(config().GOOGLE_SERVICE_ACCOUNT_KEY_BASE64)
-    .clientEmail;
+  return serviceAccountKey().clientEmail;
 }
 
 export type CalendarEventsPage = {
@@ -84,13 +128,15 @@ export type CalendarEventsPage = {
  * list and a list that simply omits the configured id point at completely
  * different fixes.
  *
- * A share grants the account a calendar-list entry, so anything genuinely
- * shared shows up here.
+ * Under impersonation this is the *impersonated user's* list, which is the
+ * more useful answer of the two: it shows the calendars the bot will actually
+ * be able to read, without anything having been shared with a service account
+ * at all.
  */
-export async function fetchAccessibleCalendars(): Promise<
-  AccessibleCalendar[]
-> {
-  const client = serviceAccountClient();
+export async function fetchAccessibleCalendars(
+  access: CalendarAccess = {}
+): Promise<AccessibleCalendar[]> {
+  const client = serviceAccountClient(access.subject);
   const calendars: AccessibleCalendar[] = [];
   let pageToken: string | undefined;
 
@@ -160,9 +206,10 @@ export async function collectEventPages(
  */
 export async function fetchCalendarEvents(
   calendarId: string,
-  now: Date = new Date()
+  access: CalendarAccess = {}
 ): Promise<RawCalendarEvent[]> {
-  const client = serviceAccountClient();
+  const client = serviceAccountClient(access.subject);
+  const now = access.now ?? new Date();
 
   return collectEventPages(async (pageToken) => {
     const params = new URLSearchParams({
@@ -192,7 +239,8 @@ export async function fetchCalendarEvents(
       throw new Error(
         describeCalendarAccessFailure(readGoogleError(err), {
           calendarId,
-          serviceAccountEmail: cachedEmail ?? undefined,
+          serviceAccountEmail: cachedKey?.clientEmail,
+          impersonating: access.subject,
         })
       );
     }

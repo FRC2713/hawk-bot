@@ -351,3 +351,40 @@ test("a server that echoes the same page token forever is cut off", async () => 
   );
   assert.equal(calls, 20, "the backstop should stop paging, not loop");
 });
+
+// --- delegation ------------------------------------------------------------
+
+test("the service account's client id is extracted for the delegation grant", () => {
+  // It is what an admin pastes into Admin console → Domain-wide delegation,
+  // and it exists nowhere else an operator can reach.
+  assert.equal(parseServiceAccountKey(encode(validKey)).clientId, "123");
+});
+
+test("a key file without a client_id still parses", () => {
+  const { client_id: _omitted, ...rest } = validKey;
+  const parsed = parseServiceAccountKey(encode(rest));
+  assert.equal(parsed.clientId, undefined);
+  // Absence must not break authentication — client_id plays no part in it.
+  assert.equal(parsed.clientEmail, validKey.client_email);
+});
+
+test("without delegation, a 404 names the Workspace trap and points at delegation", () => {
+  const text = describeCalendarAccessFailure(
+    { status: 404, message: "Not Found", reason: "notFound" },
+    ctx
+  );
+  // The failure we actually hit: dialog shows the entry, Google refuses it.
+  assert.match(text, /accept an external principal in the sharing dialog/);
+  assert.match(text, /google_impersonated_user/);
+});
+
+test("with delegation on, a 404 stops talking about sharing entirely", () => {
+  const text = describeCalendarAccessFailure(
+    { status: 404, message: "Not Found", reason: "notFound" },
+    { ...ctx, impersonating: "calendar@team.org" }
+  );
+  assert.match(text, /as `calendar@team\.org`/);
+  assert.match(text, /calendar\.readonly/);
+  // Sharing with the service account is irrelevant once impersonating.
+  assert.doesNotMatch(text, /Share with specific people or groups/);
+});

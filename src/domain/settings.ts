@@ -14,6 +14,7 @@ export type SettingKey =
   | "announce_channel"
   | "home_note"
   | "team_meeting_calendar_id"
+  | "google_impersonated_user"
   | "checkin_offset_hourly_hours"
   | "checkin_offset_allday_time"
   | "default_all_day_hours"
@@ -73,6 +74,13 @@ const CALENDAR_ID_EXPECTS =
   "right and is still rejected, the paste carried an invisible character; " +
   "retype the id by hand.";
 
+/**
+ * An address inside the Google Workspace, for delegation. Shape only — whether
+ * the account exists and whether the delegation grant was actually made are
+ * both live questions Google answers, and `/hawkbot calendar` asks it.
+ */
+const WORKSPACE_USER = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+
 export const SETTINGS: readonly Setting[] = [
   {
     key: "announce_channel",
@@ -91,6 +99,14 @@ export const SETTINGS: readonly Setting[] = [
     summary: "The Team Meeting Calendar's id — the source of truth for Events",
     expects: CALENDAR_ID_EXPECTS,
     validate: (v) => CALENDAR_ID.test(v.trim()),
+  },
+  {
+    key: "google_impersonated_user",
+    summary:
+      "A Google Workspace account to read calendars *as* (domain-wide delegation) — set this when a Workspace refuses to share its calendars with the service account. Unset to read as the service account itself",
+    expects:
+      "a Workspace email like calendar@yourteam.org, or unset to disable delegation",
+    validate: (v) => WORKSPACE_USER.test(v.trim()),
   },
   {
     key: "checkin_offset_hourly_hours",
