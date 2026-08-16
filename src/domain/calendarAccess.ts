@@ -129,30 +129,58 @@ export type CalendarAccessContext = {
   serviceAccountEmail?: string;
 };
 
+/** What `readGoogleError` extracted, as `describeCalendarAccessFailure` wants it. */
+export type GoogleFailure = {
+  status: number | undefined;
+  message: string;
+  reason?: string | undefined;
+};
+
 /**
  * Google's own error text, with the fix appended.
  *
- * The three refusals below are the ones a first-time setup actually hits, and
+ * The refusals below are the ones a first-time setup actually hits, and
  * Google's wording for the most common of them — a bare "Not Found" for a
  * calendar that exists but was never shared — actively misleads. Anything
  * unrecognized is passed through verbatim rather than guessed at; a wrong
  * explanation is worse than none.
+ *
+ * Every branch ends with Google's raw status and `reason`. That is not noise:
+ * a 404 alone cannot distinguish "never shared" from "an admin policy hides
+ * this from your app", and chasing the wrong one of those costs an afternoon.
+ * `reason` is the field that separates them, and it is the field a support
+ * thread will ask for.
  */
 export function describeCalendarAccessFailure(
-  status: number | undefined,
-  message: string,
+  failure: GoogleFailure,
   ctx: CalendarAccessContext
 ): string {
+  const { status, message, reason } = failure;
   const sharedWith = ctx.serviceAccountEmail
     ? `\`${ctx.serviceAccountEmail}\``
     : "the service account's own email address";
+  const raw = `_Google: ${status ?? "no status"}${reason ? ` ${reason}` : ""} — ${message}_`;
+
+  // A Workspace admin can block an OAuth client from reaching the domain's
+  // data outright (Admin console → Security → API controls). Calendar reports
+  // that as the resource simply not existing, so it is indistinguishable from
+  // an unshared calendar unless `reason` says otherwise.
+  if (reason === "domainPolicy" || /domain polic/i.test(message)) {
+    return [
+      `A Google Workspace policy is blocking this app from \`${ctx.calendarId}\`.`,
+      "This is not a sharing problem and cannot be fixed from the calendar's sharing dialog.",
+      "A Workspace admin has to allow the service account's OAuth client under Admin console → Security → Access and data control → API controls → App access control.",
+      raw,
+    ].join("\n");
+  }
 
   if (status === 404) {
     return [
       `Google can't see the calendar \`${ctx.calendarId}\`.`,
-      `Google returns this both for a calendar id that doesn't exist and for one that was never shared with ${sharedWith} — it can't tell you which.`,
-      `Open that calendar's Settings and sharing → "Share with specific people or groups", add ${sharedWith}, and give it at least "See all event details".`,
-      "A service account is not a member of the workspace; nothing is shared with it implicitly.",
+      `Google returns this for a calendar id that doesn't exist, for one that was never shared with ${sharedWith}, *and* for one an admin policy hides from this app — it can't tell you which.`,
+      `First: open that calendar's Settings and sharing → "Share with specific people or groups", add ${sharedWith}, and give it at least "See all event details". A service account is not a member of the workspace; nothing is shared with it implicitly.`,
+      "If it is already shared — or the calendar is public, which needs no sharing at all — then sharing is not the problem. Check the inventory below: it says what this account can reach regardless of what is configured here.",
+      raw,
     ].join("\n");
   }
 
@@ -171,7 +199,7 @@ export function describeCalendarAccessFailure(
     return [
       `The service account can reach \`${ctx.calendarId}\` but is not allowed to read it.`,
       `Re-check the sharing level for ${sharedWith}: "See only free/busy" hides event titles and times, which is not enough. It needs "See all event details".`,
-      `Google said: ${message}`,
+      raw,
     ].join("\n");
   }
 
@@ -182,11 +210,128 @@ export function describeCalendarAccessFailure(
     return [
       "Google rejected the service account credential itself.",
       "Usually the key was deleted or the service account disabled in the Cloud console, or this host's clock has drifted — a signed assertion more than a few minutes off is refused.",
-      `Google said: ${message}`,
+      raw,
     ].join("\n");
   }
 
-  return `Google said: ${message}`;
+  return raw;
+}
+
+/** One entry of what Google says this service account can actually reach. */
+export type AccessibleCalendar = {
+  id: string;
+  summary?: string;
+  /** owner | writer | reader | freeBusyReader — the sharing level, as Google sees it. */
+  accessRole?: string;
+};
+
+export type ConfiguredCalendar = { label: string; calendarId: string };
+
+/**
+ * "See only free/busy" — the sharing level that returns events with every
+ * detail stripped, so a sync appears to work and produces untitled Events at
+ * the wrong times. Worth naming separately from no access at all.
+ */
+const FREE_BUSY_ONLY = "freeBusyReader";
+
+/**
+ * A calendar id with every character that renders as nothing removed —
+ * whitespace, zero-width space/joiner (U+200B–U+200D), and the byte-order mark
+ * (U+FEFF). Used only to *compare* two ids, never to store one: an id that
+ * needs this treatment should be corrected at the source, not silently
+ * repaired somewhere the operator can't see.
+ */
+export function normalizeCalendarId(id: string): string {
+  return id.replace(/[\s\u200B-\u200D\uFEFF]/g, "");
+}
+
+/**
+ * Turns "which calendars does Google say this account can reach" into the
+ * answer to the one question a per-id 404 cannot settle: whether the id is
+ * wrong or the share is not in effect.
+ *
+ * Asking "can I read *this* id" returns the same 404 for both, which is where
+ * a first-time setup gets stuck — the sharing dialog shows the entry, so the
+ * obvious reading is that Google is wrong. Asking Google to *enumerate* what
+ * it can see distinguishes them outright: an empty inventory means no share is
+ * in effect anywhere, and a non-empty one that omits the configured ids means
+ * the ids point at something else.
+ */
+export function describeCalendarInventory(
+  configured: readonly ConfiguredCalendar[],
+  accessible: readonly AccessibleCalendar[]
+): string {
+  const header = "*What Google says this service account can actually see*";
+
+  if (accessible.length === 0) {
+    return [
+      header,
+      "_Nothing._ Not one calendar, which rules out a mistyped id — an id this account could read would appear here whatever it was configured as.",
+      "So no share is in effect. Either the sharing dialog was saved against a different address, or a Google Workspace policy is dropping it: a service account lives outside your Workspace domain, and an admin restriction on external sharing accepts the entry in the UI and then does not grant it.",
+      "Reload the calendar's *Settings and sharing* page — if the entry is gone, that is what happened, and the fix is a Workspace admin change or domain-wide delegation rather than anything in Slack.",
+    ].join("\n");
+  }
+
+  const byId = new Map(accessible.map((c) => [c.id, c]));
+  const byNormalized = new Map(
+    accessible.map((c) => [normalizeCalendarId(c.id), c])
+  );
+  const lines = [header];
+
+  const missing = configured.filter((c) => !byId.has(c.calendarId));
+  const found = configured.filter((c) => byId.has(c.calendarId));
+
+  for (const { label, calendarId } of found) {
+    const entry = byId.get(calendarId)!;
+    const role = entry.accessRole ?? "unknown";
+    lines.push(
+      entry.accessRole === FREE_BUSY_ONLY
+        ? `• *${label}* — visible, but shared at *See only free/busy*. Event titles, descriptions and locations are hidden, so this needs raising to "See all event details".`
+        : `• *${label}* — visible (\`${role}\`).`
+    );
+  }
+
+  // A configured id that matches a visible calendar once invisible characters
+  // are stripped is not a wrong id at all — it is the right id carrying a
+  // zero-width or non-breaking space from a paste. Nothing that echoes the
+  // value back can show the difference, so it has to be named explicitly.
+  const invisible = missing.filter((c) => {
+    const match = byNormalized.get(normalizeCalendarId(c.calendarId));
+    return match !== undefined && match.id !== c.calendarId;
+  });
+
+  for (const { label } of missing) {
+    const isInvisible = invisible.some((c) => c.label === label);
+    lines.push(
+      isInvisible
+        ? `• *${label}* — :rotating_light: matches a calendar this account *can* read, but only after stripping invisible characters. The stored id carries a zero-width or non-breaking space from a paste, which is why Google says it doesn't exist.`
+        : `• *${label}* — not in this list.`
+    );
+  }
+
+  if (invisible.length > 0) {
+    lines.push(
+      "",
+      `Fix by re-setting ${invisible.length === 1 ? "that id" : "those ids"}, typing the value by hand rather than pasting:`,
+      ...invisible.map(
+        (c) =>
+          `    \`/hawkbot config set … ${normalizeCalendarId(c.calendarId)}\``
+      )
+    );
+  }
+
+  if (missing.length > 0) {
+    lines.push(
+      "",
+      `This account *can* read ${accessible.length} calendar${accessible.length === 1 ? "" : "s"}, so the credential and the sharing mechanism both work. The configured id${missing.length === 1 ? "" : "s"} above simply are not among them — which means the id is pointing somewhere other than the calendar that was shared.`,
+      "Here is everything it can read. If one of these is the calendar you meant, copy its id:",
+      ...accessible.map(
+        (c) => `    \`${c.id}\`${c.summary ? ` — ${c.summary}` : ""}`
+      )
+    );
+  }
+
+  return lines.join("\n");
 }
 
 /**
@@ -199,16 +344,36 @@ export function describeCalendarAccessFailure(
 export function readGoogleError(err: unknown): {
   status: number | undefined;
   message: string;
+  /**
+   * Google's own machine-readable cause — `notFound`, `forbidden`,
+   * `accessNotConfigured`, `domainPolicy`, … Worth surfacing on its own:
+   * several distinct causes collapse to the same HTTP status and the same
+   * human-facing text, and this is the field that still tells them apart.
+   */
+  reason: string | undefined;
 } {
   const e = err as {
     status?: unknown;
     code?: unknown;
     message?: unknown;
-    response?: { status?: unknown };
+    response?: { status?: unknown; data?: unknown };
   };
   const candidates = [e?.status, e?.response?.status, e?.code];
   const status = candidates.find((c): c is number => typeof c === "number");
   const message =
     typeof e?.message === "string" && e.message ? e.message : String(err);
-  return { status, message };
+
+  const body = (e?.response as { data?: unknown } | undefined)?.data as
+    | { error?: { errors?: { reason?: unknown }[]; status?: unknown } }
+    | undefined;
+  const first = body?.error?.errors?.[0]?.reason;
+  const grpc = body?.error?.status;
+  const reason =
+    typeof first === "string"
+      ? first
+      : typeof grpc === "string"
+        ? grpc
+        : undefined;
+
+  return { status, message, reason };
 }

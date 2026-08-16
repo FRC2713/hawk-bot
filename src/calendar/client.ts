@@ -5,6 +5,7 @@ import {
   describeCalendarAccessFailure,
   parseServiceAccountKey,
   readGoogleError,
+  type AccessibleCalendar,
 } from "../domain/calendarAccess.js";
 
 const CALENDAR_READONLY_SCOPE =
@@ -71,6 +72,51 @@ export type CalendarEventsPage = {
   items?: RawCalendarEvent[];
   nextPageToken?: string;
 };
+
+/**
+ * Everything Google says this service account can reach, from its own calendar
+ * list rather than from anything configured here.
+ *
+ * This is the question a per-calendar 404 cannot answer. `events.list` on one
+ * id returns the same "Not Found" whether the id is wrong, the share never
+ * took effect, or a Workspace policy hides it — so the useful move is to stop
+ * asking about a specific id and ask what the account can see at all. An empty
+ * list and a list that simply omits the configured id point at completely
+ * different fixes.
+ *
+ * A share grants the account a calendar-list entry, so anything genuinely
+ * shared shows up here.
+ */
+export async function fetchAccessibleCalendars(): Promise<
+  AccessibleCalendar[]
+> {
+  const client = serviceAccountClient();
+  const calendars: AccessibleCalendar[] = [];
+  let pageToken: string | undefined;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const params = new URLSearchParams({
+      maxResults: "250",
+      // minAccessRole is deliberately unset: a calendar shared at
+      // "See only free/busy" must still appear, because that *is* one of the
+      // findings — it looks like access and produces detail-free events.
+      fields: "nextPageToken,items(id,summary,accessRole,primary)",
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+
+    const url = `https://www.googleapis.com/calendar/v3/users/me/calendarList?${params}`;
+    const res = await client.request<{
+      items?: AccessibleCalendar[];
+      nextPageToken?: string;
+    }>({ url });
+
+    calendars.push(...(res.data.items ?? []));
+    if (!res.data.nextPageToken) return calendars;
+    pageToken = res.data.nextPageToken;
+  }
+
+  return calendars;
+}
 
 /**
  * Follows `nextPageToken` to the end and concatenates the items.
@@ -143,9 +189,8 @@ export async function fetchCalendarEvents(
       const res = await client.request<CalendarEventsPage>({ url });
       return res.data;
     } catch (err) {
-      const { status, message } = readGoogleError(err);
       throw new Error(
-        describeCalendarAccessFailure(status, message, {
+        describeCalendarAccessFailure(readGoogleError(err), {
           calendarId,
           serviceAccountEmail: cachedEmail ?? undefined,
         })
