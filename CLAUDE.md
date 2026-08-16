@@ -18,8 +18,8 @@ All four are seconds; run them before pushing. `docker.yml` publishes
 
 ## What this is
 
-The Red Hawk Robotics team assistant for Slack: one slash command, `/hawk`,
-with subcommands behind it. Node 22, TypeScript, Bolt, SQLite via
+The Red Hawk Robotics team assistant for Slack: one slash command,
+`/hawkbot`, with subcommands behind it. Node 22, TypeScript, Bolt, SQLite via
 better-sqlite3. One container, one volume.
 
 It is the sibling of [hawk-mod](https://github.com/FRC2713/hawk-mod), and the
@@ -62,7 +62,7 @@ src/slack/home.ts       the App Home view, rendered from the command registry
 capability is a file in `src/commands/` plus a line in that array — and
 nothing else, deliberately.
 
-`src/commands/parse.ts` is pure and tested: bare `/hawk` means `help`,
+`src/commands/parse.ts` is pure and tested: bare `/hawkbot` means `help`,
 subcommand names are case-insensitive, `rest` keeps the original casing of the
 arguments. Handlers get a parsed `CommandContext` and return a `CommandReply`;
 they never touch `ack()` or Slack's response payloads.

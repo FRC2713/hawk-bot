@@ -2,7 +2,7 @@
  * Workspace configuration the coaches set from Slack, as opposed to the
  * credentials and hostnames the operator sets in `.env`.
  *
- * Every key is declared here. `/hawk config set` refuses anything not in this
+ * Every key is declared here. `/hawkbot config set` refuses anything not in this
  * list, because the failure it prevents is silent: a mistyped key would store
  * cleanly, read back as unset wherever the feature looks for it, and present
  * as "the bot ignored me".
@@ -12,8 +12,8 @@
  */
 export type SettingKey =
   | "announce_channel"
-  | "timezone_note"
-  | "google_calendar_id"
+  | "home_note"
+  | "team_meeting_calendar_id"
   | "checkin_offset_hourly_hours"
   | "checkin_offset_allday_time"
   | "default_all_day_hours"
@@ -47,13 +47,13 @@ export const SETTINGS: readonly Setting[] = [
     validate: (v) => CHANNEL_ID.test(v.trim()),
   },
   {
-    key: "timezone_note",
+    key: "home_note",
     summary: "Free text shown on the App Home, e.g. meeting nights",
     expects: "any text up to 200 characters",
     validate: (v) => v.trim().length > 0 && v.trim().length <= 200,
   },
   {
-    key: "google_calendar_id",
+    key: "team_meeting_calendar_id",
     summary: "The Team Meeting Calendar's id — the source of truth for Events",
     expects: "a Google Calendar id, e.g. team@group.calendar.google.com",
     validate: (v) => v.trim().length > 0 && v.trim().length <= 200,

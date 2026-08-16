@@ -6,9 +6,9 @@
  * repo, the package, the container, the database file, the log line. Those are
  * identities, not branding, and renaming one breaks a volume or a deploy.
  *
- * The slash command is `/hawk` rather than `/hawkbot`: it is the front door to
- * everything this app does, people type it constantly, and the sibling app
- * already owns `/hawkmod`.
+ * The slash command is `/hawkbot`, not the shorter `/hawk` it started as: the
+ * workspace has other hawk-themed bots, and `/hawk` was generic enough to
+ * collide with them in Slack's command picker.
  *
  * Imported by `commands/`, so it holds no configuration and reads no
  * environment — `config()` inside a module that a test pulls in makes the test
@@ -17,7 +17,7 @@
 export const APP_NAME = "Hawk Bot";
 
 /** The one slash command. Subcommands live behind it; see `commands/`. */
-export const SLASH_COMMAND = "/hawk";
+export const SLASH_COMMAND = "/hawkbot";
 
 /** Red Hawk Robotics' red, and the two neutrals the icon is built from. */
 export const BRAND = {

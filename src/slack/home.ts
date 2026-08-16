@@ -10,7 +10,7 @@ import { log } from "../logger.js";
  * up here without anyone remembering to add it.
  */
 export function homeView(): { type: "home"; blocks: KnownBlock[] } {
-  const note = getSetting("timezone_note");
+  const note = getSetting("home_note");
 
   const commands = COMMANDS.map(
     (c) => `• \`${SLASH_COMMAND} ${c.name}\` — ${c.summary}`

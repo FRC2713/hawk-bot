@@ -27,7 +27,7 @@ features:
     messages_tab_enabled: false
     messages_tab_read_only_enabled: true
   slash_commands:
-    - command: /hawk
+    - command: /hawkbot
       url: https://hawk-bot.example.org/slack/events
       description: Team assistant — help, status, settings, attendance
       usage_hint: help | status | whoami | config | report | event

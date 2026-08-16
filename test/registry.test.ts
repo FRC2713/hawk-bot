@@ -29,6 +29,6 @@ test("every command is lowercase, one word, and documented", () => {
   }
 });
 
-test("a bare /hawk resolves to something", () => {
+test("a bare /hawkbot resolves to something", () => {
   assert.ok(resolveCommand(COMMANDS, "help"));
 });
