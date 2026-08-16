@@ -255,3 +255,22 @@ test("isCalendarId accepts the shapes Google issues and rejects invisible charac
   assert.equal(isCalendarId("team​@group.calendar.google.com"), false);
   assert.equal(isCalendarId("team @group.calendar.google.com"), false);
 });
+
+test("the impersonated Workspace user is validated as an email address", () => {
+  assert.equal(
+    checkSetting("google_impersonated_user", "calendar@redhawkrobotics.org").ok,
+    true
+  );
+  assert.equal(checkSetting("google_impersonated_user", "calendar").ok, false);
+  assert.equal(checkSetting("google_impersonated_user", "   ").ok, false);
+  // A service account address is exactly what this must NOT be set to — but it
+  // is a valid email, so the check is shape-only and the guidance lives in the
+  // summary. Documented here so the looseness is deliberate, not forgotten.
+  assert.equal(
+    checkSetting(
+      "google_impersonated_user",
+      "hawk-bot@hawk-bot-505622.iam.gserviceaccount.com"
+    ).ok,
+    true
+  );
+});

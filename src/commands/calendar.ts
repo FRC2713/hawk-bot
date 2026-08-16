@@ -1,7 +1,7 @@
 import {
   fetchAccessibleCalendars,
   fetchCalendarEvents,
-  serviceAccountEmail,
+  serviceAccountIdentity,
 } from "../calendar/client.js";
 import { getSetting } from "../db/repo.js";
 import { mapCalendarEvent, upcomingEvents } from "../domain/calendar.js";
@@ -47,7 +47,9 @@ async function previewCalendar(
 ): Promise<Preview> {
   let raw;
   try {
-    raw = await fetchCalendarEvents(calendarId);
+    raw = await fetchCalendarEvents(calendarId, {
+      subject: impersonatedUser(),
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { text: `*${label}*\n:warning: ${message}`, failed: true };
@@ -102,7 +104,7 @@ async function inventorySection(): Promise<string> {
   try {
     return describeCalendarInventory(
       configured,
-      await fetchAccessibleCalendars()
+      await fetchAccessibleCalendars({ subject: impersonatedUser() })
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -120,13 +122,37 @@ async function inventorySection(): Promise<string> {
  * host nobody SSHes into. Every "the bot can't see the calendar" report is
  * one lookup away from resolved once this is on screen.
  */
+/** The Workspace user to act as, or undefined for "act as the service account". */
+function impersonatedUser(): string | undefined {
+  return getSetting("google_impersonated_user");
+}
+
 function identityLine(): string {
+  let identity;
   try {
-    return `Authenticating to Google as \`${serviceAccountEmail()}\`\n_Each calendar below must be shared with that address ("See all event details")._`;
+    identity = serviceAccountIdentity();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return `:warning: Can't read the service account credential.\n${message}`;
   }
+
+  const subject = impersonatedUser();
+  if (subject) {
+    return [
+      `Reading calendars as \`${subject}\` — domain-wide delegation is on.`,
+      `_The service account \`${identity.email}\` is impersonating that user, so the calendars do not need to be shared with the service account at all. They only need to be visible to ${subject}._`,
+    ].join("\n");
+  }
+
+  return [
+    `Authenticating to Google as \`${identity.email}\``,
+    `_Each calendar below must be shared with that address ("See all event details")._`,
+    identity.clientId
+      ? `_If your calendars live in a Google Workspace that refuses to share with an outside account, use delegation instead: \`/hawkbot config set google_impersonated_user <a Workspace address>\`, after an admin authorizes client id \`${identity.clientId}\` for \`https://www.googleapis.com/auth/calendar.readonly\` under Admin console → Security → API controls → Domain-wide delegation._`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /**
