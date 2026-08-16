@@ -39,6 +39,28 @@ export type Setting = {
 /** A Slack channel id, as it arrives from `#channel` autocomplete or by hand. */
 const CHANNEL_ID = /^[CG][A-Z0-9]{2,}$/;
 
+/**
+ * A Google Calendar id: `primary`, or the address-shaped id Google shows under
+ * *Integrate calendar* — `team@group.calendar.google.com`, and the odd
+ * `en.usa#holiday@group.v.calendar.google.com` for a subscribed public one.
+ *
+ * ASCII-only on purpose, and that is the whole reason this check exists rather
+ * than a length check. A calendar id is copied out of a browser and pasted
+ * into Slack, and a paste can carry a zero-width space (U+200B) or a
+ * non-breaking space. Neither is removed by `trim()`, both render as nothing
+ * at all, and both survive into the request URL as `%E2%80%8B` / `%C2%A0` — so
+ * Google returns 404 for a calendar that is shared perfectly correctly, and
+ * the stored value still looks right in every message that echoes it back.
+ * That failure is unfalsifiable from Slack; this makes it unstorable instead.
+ */
+const CALENDAR_ID = /^(primary|[A-Za-z0-9._%+#-]+@[A-Za-z0-9.-]+)$/;
+
+const CALENDAR_ID_EXPECTS =
+  "a Google Calendar id like team@group.calendar.google.com — copy it from " +
+  "the calendar's Settings and sharing → Integrate calendar. If it looks " +
+  "right and is still rejected, the paste carried an invisible character; " +
+  "retype the id by hand.";
+
 export const SETTINGS: readonly Setting[] = [
   {
     key: "announce_channel",
@@ -55,8 +77,8 @@ export const SETTINGS: readonly Setting[] = [
   {
     key: "team_meeting_calendar_id",
     summary: "The Team Meeting Calendar's id — the source of truth for Events",
-    expects: "a Google Calendar id, e.g. team@group.calendar.google.com",
-    validate: (v) => v.trim().length > 0 && v.trim().length <= 200,
+    expects: CALENDAR_ID_EXPECTS,
+    validate: (v) => CALENDAR_ID.test(v.trim()),
   },
   {
     key: "checkin_offset_hourly_hours",
@@ -112,15 +134,15 @@ export const SETTINGS: readonly Setting[] = [
     key: "informational_calendar_id",
     summary:
       "The Informational Calendar's id — set to enable it, unset to disable. Its Events post as a threaded reply under the Weekly Summary Post",
-    expects: "a Google Calendar id, e.g. team@group.calendar.google.com",
-    validate: (v) => v.trim().length > 0 && v.trim().length <= 200,
+    expects: CALENDAR_ID_EXPECTS,
+    validate: (v) => CALENDAR_ID.test(v.trim()),
   },
   {
     key: "mentor_calendar_id",
     summary:
       "The Mentor/Teacher Calendar's id — set to enable it, unset to disable. Its Events post to the Mentor/Teacher Weekly Summary",
-    expects: "a Google Calendar id, e.g. mentors@group.calendar.google.com",
-    validate: (v) => v.trim().length > 0 && v.trim().length <= 200,
+    expects: CALENDAR_ID_EXPECTS,
+    validate: (v) => CALENDAR_ID.test(v.trim()),
   },
   {
     key: "mentor_summary_channel",

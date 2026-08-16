@@ -36,13 +36,52 @@ test("free text is bounded", () => {
   assert.equal(checkSetting("home_note", "x".repeat(201)).ok, false);
 });
 
-test("the Team Meeting Calendar id just needs to be non-blank", () => {
+test("the Team Meeting Calendar id has to look like a calendar id", () => {
   assert.equal(
     checkSetting("team_meeting_calendar_id", "team@group.calendar.google.com")
       .ok,
     true
   );
   assert.equal(checkSetting("team_meeting_calendar_id", "   ").ok, false);
+  // Google's own long-form Workspace ids, and the two other legal shapes.
+  assert.equal(
+    checkSetting(
+      "team_meeting_calendar_id",
+      "c_f28f2b2f7fac90b1a6c8bb2819b15f054799129d919c05b22c7e68b7752165cc@group.calendar.google.com"
+    ).ok,
+    true
+  );
+  assert.equal(checkSetting("team_meeting_calendar_id", "primary").ok, true);
+  assert.equal(
+    checkSetting(
+      "team_meeting_calendar_id",
+      "en.usa#holiday@group.v.calendar.google.com"
+    ).ok,
+    true
+  );
+});
+
+// The failure this exists for: an id pasted out of a browser can carry a
+// character that renders as nothing, survives trim(), and percent-encodes into
+// the request path — so Google 404s a calendar that is shared correctly, and
+// every message that echoes the value back looks perfect.
+test("a calendar id carrying an invisible character is refused, not stored", () => {
+  const clean = "team@group.calendar.google.com";
+  for (const [name, invisible] of [
+    ["zero-width space", "​"],
+    ["zero-width joiner", "‍"],
+    ["non-breaking space", " "],
+    ["byte-order mark", "﻿"],
+  ] as const) {
+    const pasted = clean.replace("@", `${invisible}@`);
+    // Precondition: it really is indistinguishable by the old length check.
+    assert.equal(pasted.trim().length > 0, true, name);
+    assert.notEqual(pasted, clean, name);
+
+    const result = checkSetting("team_meeting_calendar_id", pasted);
+    assert.equal(result.ok, false, `${name} should be refused`);
+    if (!result.ok) assert.match(result.reason, /invisible character/);
+  }
 });
 
 test("the Hourly check-in offset is a positive whole number of hours", () => {

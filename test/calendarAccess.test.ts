@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   describeCalendarAccessFailure,
+  describeCalendarInventory,
   parseServiceAccountKey,
   readGoogleError,
 } from "../src/domain/calendarAccess.js";
@@ -94,25 +95,47 @@ const ctx = {
 };
 
 test("a 404 is explained as sharing, not as a missing calendar", () => {
-  const text = describeCalendarAccessFailure(404, "Not Found", ctx);
+  const text = describeCalendarAccessFailure(
+    { status: 404, message: "Not Found", reason: "notFound" },
+    ctx
+  );
   assert.match(text, /never shared/);
   assert.match(text, /See all event details/);
   // The address to share with has to appear — it is the actionable part.
   assert.match(text, /hawk-bot@hawk-bot\.iam\.gserviceaccount\.com/);
+  // …but it must not stop there. A calendar that is already shared, or public,
+  // is exactly the case that sent us chasing the sharing dialog for nothing.
+  assert.match(text, /already shared|public/);
+  assert.match(text, /404 notFound/);
 });
 
 test("a 404 still gives the sharing instruction when the email is unknown", () => {
-  const text = describeCalendarAccessFailure(404, "Not Found", {
-    calendarId: ctx.calendarId,
-  });
+  const text = describeCalendarAccessFailure(
+    { status: 404, message: "Not Found" },
+    { calendarId: ctx.calendarId }
+  );
   assert.match(text, /service account's own email address/);
+});
+
+test("a domain policy block is not reported as a sharing problem", () => {
+  const text = describeCalendarAccessFailure(
+    { status: 404, message: "Not Found", reason: "domainPolicy" },
+    ctx
+  );
+  assert.match(text, /Workspace policy/);
+  assert.match(text, /API controls/);
+  // The whole point: do not send an admin back to the sharing dialog.
+  assert.match(text, /not a sharing problem/);
 });
 
 test("a disabled Calendar API is distinguished from a sharing problem", () => {
   const google =
     "Google Calendar API has not been used in project 12345 before or it is disabled. " +
     "Enable it by visiting https://console.developers.google.com/apis/api/calendar-json.googleapis.com/overview?project=12345 then retry.";
-  const text = describeCalendarAccessFailure(403, google, ctx);
+  const text = describeCalendarAccessFailure(
+    { status: 403, message: google, reason: "accessNotConfigured" },
+    ctx
+  );
   assert.match(text, /not enabled in the service account's Cloud project/);
   assert.doesNotMatch(text, /never shared/);
   // Google's message carries the one-click enable link; it must survive.
@@ -120,7 +143,10 @@ test("a disabled Calendar API is distinguished from a sharing problem", () => {
 });
 
 test("a plain 403 points at the sharing level rather than at the API", () => {
-  const text = describeCalendarAccessFailure(403, "Forbidden", ctx);
+  const text = describeCalendarAccessFailure(
+    { status: 403, message: "Forbidden", reason: "forbidden" },
+    ctx
+  );
   assert.match(text, /free\/busy/);
   assert.doesNotMatch(
     text,
@@ -130,33 +156,142 @@ test("a plain 403 points at the sharing level rather than at the API", () => {
 
 test("a rejected assertion points at the key and the clock", () => {
   const text = describeCalendarAccessFailure(
-    400,
-    "invalid_grant: Invalid JWT Signature.",
+    { status: 400, message: "invalid_grant: Invalid JWT Signature." },
     ctx
   );
   assert.match(text, /rejected the service account credential/);
   assert.match(text, /clock/);
 });
 
-test("an unrecognized failure is passed through rather than guessed at", () => {
-  const text = describeCalendarAccessFailure(500, "Backend Error", ctx);
-  assert.equal(text, "Google said: Backend Error");
+test("an unrecognized failure still carries Google's status and reason", () => {
+  const text = describeCalendarAccessFailure(
+    { status: 500, message: "Backend Error", reason: "backendError" },
+    ctx
+  );
+  assert.match(text, /Backend Error/);
+  assert.match(text, /500 backendError/);
 });
 
-test("status and message are read off either error shape", () => {
+test("status, message and reason are read off either error shape", () => {
   assert.deepEqual(readGoogleError({ status: 404, message: "Not Found" }), {
     status: 404,
     message: "Not Found",
+    reason: undefined,
   });
   assert.deepEqual(
     readGoogleError({ response: { status: 403 }, message: "Forbidden" }),
-    { status: 403, message: "Forbidden" }
+    { status: 403, message: "Forbidden", reason: undefined }
   );
   // A thrown non-Error must not take the diagnostic down with it.
   assert.deepEqual(readGoogleError("boom"), {
     status: undefined,
     message: "boom",
+    reason: undefined,
   });
+});
+
+test("Google's machine-readable reason is pulled out of the response body", () => {
+  const gaxiosish = {
+    status: 404,
+    message: "Not Found",
+    response: {
+      status: 404,
+      data: {
+        error: {
+          errors: [
+            { domain: "global", reason: "notFound", message: "Not Found" },
+          ],
+          code: 404,
+          message: "Not Found",
+        },
+      },
+    },
+  };
+  assert.equal(readGoogleError(gaxiosish).reason, "notFound");
+});
+
+test("a gRPC-style status field is used when there is no errors array", () => {
+  const err = {
+    status: 403,
+    message: "denied",
+    response: { data: { error: { status: "PERMISSION_DENIED" } } },
+  };
+  assert.equal(readGoogleError(err).reason, "PERMISSION_DENIED");
+});
+
+// --- the inventory ---------------------------------------------------------
+
+const configured = [
+  { label: "Team Meeting", calendarId: "team@group.calendar.google.com" },
+  { label: "Informational", calendarId: "info@group.calendar.google.com" },
+];
+
+test("an empty inventory rules out a mistyped id and says so", () => {
+  const text = describeCalendarInventory(configured, []);
+  assert.match(text, /Nothing/);
+  // The distinguishing claim: no id could be wrong if nothing is visible.
+  assert.match(text, /rules out a mistyped id/);
+  assert.match(text, /Workspace/);
+});
+
+test("a non-empty inventory missing the configured ids blames the ids", () => {
+  const text = describeCalendarInventory(configured, [
+    {
+      id: "other@group.calendar.google.com",
+      summary: "Some Other Calendar",
+      accessRole: "reader",
+    },
+  ]);
+  assert.match(text, /not in this list/);
+  assert.match(text, /credential and the sharing mechanism both work/);
+  // The ids it *can* read have to be printed, so they can be copied.
+  assert.match(text, /other@group\.calendar\.google\.com/);
+  assert.match(text, /Some Other Calendar/);
+});
+
+test("a visible calendar is reported with its access role", () => {
+  const text = describeCalendarInventory(configured, [
+    {
+      id: "team@group.calendar.google.com",
+      summary: "Team",
+      accessRole: "reader",
+    },
+  ]);
+  assert.match(text, /\*Team Meeting\* — visible \(`reader`\)/);
+  assert.match(text, /\*Informational\* — not in this list/);
+});
+
+test("an id that matches only after stripping invisible characters is named as such", () => {
+  const real = "team@group.calendar.google.com";
+  const pasted = real.replace("@", "​@");
+
+  const text = describeCalendarInventory(
+    [{ label: "Team Meeting", calendarId: pasted }],
+    [{ id: real, summary: "Red Hawk Team Meetings", accessRole: "reader" }]
+  );
+
+  assert.match(text, /invisible characters/);
+  assert.match(text, /zero-width or non-breaking space/);
+  // And it must offer the corrected value, not just diagnose.
+  assert.match(text, /config set … team@group\.calendar\.google\.com/);
+  // It must NOT be reported as a plain wrong id — that sends you to re-copy
+  // an id that is already, visibly, correct.
+  assert.doesNotMatch(text, /Team Meeting\* — not in this list/);
+});
+
+test("free/busy-only sharing is called out rather than reported as visible", () => {
+  const text = describeCalendarInventory(
+    [configured[0]!],
+    [
+      {
+        id: "team@group.calendar.google.com",
+        summary: "Team",
+        accessRole: "freeBusyReader",
+      },
+    ]
+  );
+  assert.match(text, /See only free\/busy/);
+  assert.match(text, /See all event details/);
 });
 
 // --- paging ----------------------------------------------------------------
