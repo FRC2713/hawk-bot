@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  unwrapCode,
   unwrapEmail,
   isCalendarId,
   SETTINGS,
@@ -312,4 +313,22 @@ test("Slack's escaped email is unwrapped for calendar ids too", () => {
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.value, "team@group.calendar.google.com");
+});
+
+// Backticks are the documented way to stop Slack linkifying a value — and
+// Slack forwards them verbatim, so the advice that fixes one mangling causes
+// another. Both forms have to be accepted or the guidance is a dead end.
+test("a backtick-escaped value is accepted, with or without Slack's linkifying", () => {
+  const id =
+    "c_f28f2b2f7fac90b1a6c8bb2819b15f054799129d919c05b22c7e68b7752165cc@group.calendar.google.com";
+  assert.equal(unwrapCode("`" + id + "`"), id);
+  assert.equal(unwrapCode("```" + id + "```"), id);
+  assert.equal(unwrapCode(id), id, "no-op on a bare value");
+
+  for (const typed of [id, "`" + id + "`", `<mailto:${id}|${id}>`]) {
+    const result = checkSetting("team_meeting_calendar_id", typed);
+    assert.equal(result.ok, true, `rejected: ${typed.slice(0, 24)}…`);
+    if (!result.ok) return;
+    assert.equal(result.value, id);
+  }
 });

@@ -1,6 +1,6 @@
 import { SLASH_COMMAND } from "../brand.js";
-import { getSetting, setSetting } from "../db/repo.js";
-import { SETTINGS, checkSetting } from "../domain/settings.js";
+import { clearSetting, getSetting, setSetting } from "../db/repo.js";
+import { SETTINGS, checkSetting, findSetting } from "../domain/settings.js";
 import type { Command } from "./types.js";
 
 function list(): string {
@@ -11,14 +11,14 @@ function list(): string {
   return [
     "*Workspace settings*",
     ...lines,
-    `Set one with \`${SLASH_COMMAND} config set <key> <value>\`.`,
+    `Set one with \`${SLASH_COMMAND} config set <key> <value>\`, clear one with \`${SLASH_COMMAND} config unset <key>\`.`,
   ].join("\n");
 }
 
 export const config: Command = {
   name: "config",
   summary: "Show or change Hawk Bot's workspace settings",
-  usage: "config | config set <key> <value>",
+  usage: "config | config set <key> <value> | config unset <key>",
   // Everything here is workspace-wide, so it answers to Slack's own admins.
   adminOnly: true,
   async run(ctx) {
@@ -26,6 +26,29 @@ export const config: Command = {
 
     if (!verb || verb.toLowerCase() === "list") {
       return { text: list() };
+    }
+
+    // Several settings document "unset to disable" as their off switch — the
+    // Informational and Mentor/Teacher Calendars, the No Response Alert
+    // Report, and now delegation. Without this there was no way to reach that
+    // state from Slack at all, so the documented off switch did not exist.
+    if (verb.toLowerCase() === "unset") {
+      if (!key) {
+        return {
+          text: `Usage: \`${SLASH_COMMAND} config unset <key>\``,
+        };
+      }
+      const setting = findSetting(key);
+      if (!setting) {
+        const known = SETTINGS.map((s) => s.key).join(", ");
+        return { text: `Unknown setting \`${key}\`. Known: ${known}` };
+      }
+      const removed = clearSetting(setting.key);
+      return {
+        text: removed
+          ? `Unset \`${setting.key}\`.`
+          : `\`${setting.key}\` was already unset.`,
+      };
     }
 
     if (verb.toLowerCase() !== "set") {

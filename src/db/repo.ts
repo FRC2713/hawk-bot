@@ -129,6 +129,21 @@ export function setSetting(
     .run(key, value, setBy, now);
 }
 
+/**
+ * Removes a setting entirely, which is not the same as setting it blank:
+ * several features treat "unset" as their off switch (the Informational and
+ * Mentor/Teacher Calendars, the No Response Alert Report), and every reader
+ * checks for absence rather than for an empty string.
+ *
+ * Returns whether a row was actually removed, so the caller can tell "turned
+ * off" from "was already off" rather than reporting success either way.
+ */
+export function clearSetting(key: SettingKey): boolean {
+  return (
+    db().prepare("DELETE FROM settings WHERE key = ?").run(key).changes > 0
+  );
+}
+
 export function listSettings(): SettingRow[] {
   return db()
     .prepare<[], SettingRow>("SELECT * FROM settings ORDER BY key")

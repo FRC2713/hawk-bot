@@ -260,14 +260,26 @@ export type ConfiguredCalendar = { label: string; calendarId: string };
 const FREE_BUSY_ONLY = "freeBusyReader";
 
 /**
- * A calendar id with every character that renders as nothing removed —
- * whitespace, zero-width space/joiner (U+200B–U+200D), and the byte-order mark
- * (U+FEFF). Used only to *compare* two ids, never to store one: an id that
- * needs this treatment should be corrected at the source, not silently
- * repaired somewhere the operator can't see.
+ * A calendar id stripped of everything that does not survive a round trip
+ * through a human: characters that render as nothing (whitespace, zero-width
+ * space/joiner U+200B–U+200D, the byte-order mark U+FEFF), and Slack's
+ * `<mailto:…|…>` wrapper.
+ *
+ * Both produce a stored value that displays identically to the correct one and
+ * matches nothing. The mailto case is the nastier of the two: a calendar id is
+ * address-shaped, so Slack linkifies it on the way in, and then *renders the
+ * wrapper back as the bare id* everywhere it is echoed — including in this
+ * bot's own diagnostics. It looks right in every message that mentions it, and
+ * only Google disagrees, with a 404 indistinguishable from an unshared
+ * calendar.
+ *
+ * Used only to *compare* two ids, never to store one: an id needing this
+ * treatment should be corrected at the source, not silently repaired somewhere
+ * the operator cannot see it happening.
  */
 export function normalizeCalendarId(id: string): string {
-  return id.replace(/[\s\u200B-\u200D\uFEFF]/g, "");
+  const unwrapped = /^<mailto:([^|>]+)(\|[^>]*)?>$/.exec(id.trim())?.[1] ?? id;
+  return unwrapped.replace(/[\s\u200B-\u200D\uFEFF]/g, "");
 }
 
 /**
@@ -329,7 +341,7 @@ export function describeCalendarInventory(
     const isInvisible = invisible.some((c) => c.label === label);
     lines.push(
       isInvisible
-        ? `• *${label}* — :rotating_light: matches a calendar this account *can* read, but only after stripping invisible characters. The stored id carries a zero-width or non-breaking space from a paste, which is why Google says it doesn't exist.`
+        ? `• *${label}* — :rotating_light: matches a calendar this account *can* read, once the stored id is cleaned up. The stored value carries either Slack's \`<mailto:…>\` wrapper or an invisible character, both of which render as the correct id everywhere and match nothing.`
         : `• *${label}* — not in this list.`
     );
   }
@@ -337,10 +349,10 @@ export function describeCalendarInventory(
   if (invisible.length > 0) {
     lines.push(
       "",
-      `Fix by re-setting ${invisible.length === 1 ? "that id" : "those ids"}, typing the value by hand rather than pasting:`,
+      `Fix by re-setting ${invisible.length === 1 ? "that id" : "those ids"}, wrapping the value in backticks so Slack sends it literally instead of turning it into a link:`,
       ...invisible.map(
         (c) =>
-          `    \`/hawkbot config set … ${normalizeCalendarId(c.calendarId)}\``
+          `    /hawkbot config set … \`${normalizeCalendarId(c.calendarId)}\``
       )
     );
   }

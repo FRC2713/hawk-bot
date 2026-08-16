@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  normalizeCalendarId,
   describeCalendarAccessFailure,
   describeCalendarInventory,
   parseServiceAccountKey,
@@ -270,10 +271,10 @@ test("an id that matches only after stripping invisible characters is named as s
     [{ id: real, summary: "Red Hawk Team Meetings", accessRole: "reader" }]
   );
 
-  assert.match(text, /invisible characters/);
-  assert.match(text, /zero-width or non-breaking space/);
+  assert.match(text, /invisible character/);
+  assert.match(text, /once the stored id is cleaned up/);
   // And it must offer the corrected value, not just diagnose.
-  assert.match(text, /config set … team@group\.calendar\.google\.com/);
+  assert.match(text, /config set … `team@group\.calendar\.google\.com`/);
   // It must NOT be reported as a plain wrong id — that sends you to re-copy
   // an id that is already, visibly, correct.
   assert.doesNotMatch(text, /Team Meeting\* — not in this list/);
@@ -387,4 +388,41 @@ test("with delegation on, a 404 stops talking about sharing entirely", () => {
   assert.match(text, /calendar\.readonly/);
   // Sharing with the service account is irrelevant once impersonating.
   assert.doesNotMatch(text, /Share with specific people or groups/);
+});
+
+// The exact live failure: a calendar id is address-shaped, so Slack linkified
+// it at `config set` time and stored `<mailto:id|id>` — 194 characters, which
+// slipped under the old 200-char length check. Slack then renders that wrapper
+// back as the bare id everywhere, so the stored value looked correct in every
+// diagnostic this bot printed, while Google 404'd the percent-encoded mess.
+test("a Slack-linkified calendar id is recognized against the real one", () => {
+  const real =
+    "c_f28f2b2f7fac90b1a6c8bb2819b15f054799129d919c05b22c7e68b7752165cc@group.calendar.google.com";
+  const stored = `<mailto:${real}|${real}>`;
+
+  assert.equal(stored.length, 194, "precondition: passed the old length check");
+  assert.equal(normalizeCalendarId(stored), real);
+
+  const text = describeCalendarInventory(
+    [{ label: "Team Meeting", calendarId: stored }],
+    [{ id: real, summary: "Red Hawk Team Meetings", accessRole: "owner" }]
+  );
+
+  assert.match(text, /mailto/);
+  assert.match(text, /backticks/);
+  assert.match(
+    text,
+    new RegExp(
+      `config set … \\\`${real.replace(/[.*+?^$()|[\]\\]/g, "\\$&")}\\\``
+    )
+  );
+  // Must not be reported as a plain wrong id — the id is right, its wrapper
+  // is not, and "not in this list" sends you to re-copy a correct value.
+  assert.doesNotMatch(text, /Team Meeting\* — not in this list/);
+});
+
+test("normalizeCalendarId leaves a clean id untouched", () => {
+  const real = "team@group.calendar.google.com";
+  assert.equal(normalizeCalendarId(real), real);
+  assert.equal(normalizeCalendarId("primary"), "primary");
 });

@@ -251,10 +251,13 @@ export function checkSetting(key: string, value: string): SettingCheck {
   }
   // Slack turns a typed `#general` into `<#C0123|general>`, a typed `@handle`
   // into `<!subteam^S0123|@handle>`, and a typed email into
-  // `<mailto:a@b.org|a@b.org>`, when the command is escaped. Unwrap all three
-  // rather than telling a coach their own channel/group/address is wrong. Each
-  // is a no-op for a value that doesn't match its pattern.
-  const unwrapped = unwrapEmail(unwrapUserGroupHandle(unwrapChannel(trimmed)));
+  // `<mailto:a@b.org|a@b.org>` — and passes code-formatted text through with
+  // its backticks attached. Unwrap all four rather than telling a coach their
+  // own channel, group, address or correctly-escaped value is wrong. Each is a
+  // no-op for a value that doesn't match its pattern.
+  const unwrapped = unwrapEmail(
+    unwrapUserGroupHandle(unwrapChannel(unwrapCode(trimmed)))
+  );
   if (!setting.validate(unwrapped)) {
     return {
       ok: false,
@@ -268,6 +271,21 @@ export function checkSetting(key: string, value: string): SettingCheck {
 export function unwrapChannel(value: string): string {
   const match = /^<#([CG][A-Z0-9]+)(\|[^>]*)?>$/.exec(value.trim());
   return match?.[1] ?? value.trim();
+}
+
+/**
+ * Strips the backticks off a code-formatted value.
+ *
+ * Wrapping a value in backticks is the standard way to stop Slack linkifying
+ * it — and it works, but Slack passes the backticks through to the command as
+ * literal characters. So the advice that defeats one mangling introduces
+ * another, and the coach who followed instructions correctly gets a rejection
+ * quoting a value that looks right apart from punctuation they were told to
+ * add. Accepting the form we tell people to use is the least we can do.
+ */
+export function unwrapCode(value: string): string {
+  const trimmed = value.trim();
+  return /^`{1,3}([^`]+)`{1,3}$/.exec(trimmed)?.[1]?.trim() ?? trimmed;
 }
 
 /**
