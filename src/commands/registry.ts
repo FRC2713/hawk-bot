@@ -1,3 +1,4 @@
+import { calendar } from "./calendar.js";
 import { config } from "./config.js";
 import { event } from "./event.js";
 import { help } from "./help.js";
@@ -21,4 +22,5 @@ export const COMMANDS: readonly Command[] = [
   config,
   report,
   event,
+  calendar,
 ];

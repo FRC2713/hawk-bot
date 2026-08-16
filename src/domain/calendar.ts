@@ -221,3 +221,21 @@ export function diffEvent(
     ? { kind: "unchanged" }
     : { kind: "edited", changedFields };
 }
+
+/**
+ * The next `count` non-cancelled events starting at or after `now`, earliest
+ * first — what "upcoming" means for a calendar preview. Shared by any
+ * feature that needs to show what's coming up on a calendar, so the rule
+ * lives here once rather than being re-decided (and re-tested, or not
+ * tested at all) at each call site.
+ */
+export function upcomingEvents(
+  events: readonly MappedEvent[],
+  now: Date,
+  count: number
+): MappedEvent[] {
+  return events
+    .filter((e) => !e.cancelled && e.startsAt.getTime() >= now.getTime())
+    .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
+    .slice(0, count);
+}

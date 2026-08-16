@@ -107,14 +107,32 @@ function toMappedEvent(row: EventRow): MappedEvent {
  * Mentor/Teacher are only synced once a HawkBot Admin sets their id;
  * setting/clearing that id is the whole on/off toggle for each (see
  * domain/settings.ts) — nothing else gates whether they're polled.
+ *
+ * Exported so `commands/calendar.ts`'s manual preview reads the same list
+ * rather than keeping its own — two lists of "which SettingKey is a
+ * calendar" would drift the next time one gets renamed, the way
+ * `google_calendar_id` already has (migration 0008).
  */
-const CALENDAR_SOURCES: readonly {
+export const CALENDAR_SOURCES: readonly {
   settingKey: SettingKey;
   calendarRole: EventCalendarRole;
+  label: string;
 }[] = [
-  { settingKey: "team_meeting_calendar_id", calendarRole: "team_meeting" },
-  { settingKey: "informational_calendar_id", calendarRole: "informational" },
-  { settingKey: "mentor_calendar_id", calendarRole: "mentor" },
+  {
+    settingKey: "team_meeting_calendar_id",
+    calendarRole: "team_meeting",
+    label: "Team Meeting",
+  },
+  {
+    settingKey: "informational_calendar_id",
+    calendarRole: "informational",
+    label: "Informational",
+  },
+  {
+    settingKey: "mentor_calendar_id",
+    calendarRole: "mentor",
+    label: "Mentor/Teacher",
+  },
 ];
 
 /**
@@ -414,21 +432,87 @@ async function finalizeDueCutoffs(
   }
 }
 
+export type SchedulerStepFailure = { step: string; error: string; at: string };
+export type SchedulerStepResult =
+  { step: string; ok: true } | { step: string; ok: false; error: string };
+
+/**
+ * Runs `fn`, catching and describing any rejection rather than letting it
+ * propagate. Pure aside from `fn` itself — no shared state — so the
+ * isolation behavior this exists for (a throwing step never stops the next
+ * `runStep` call) is directly testable, see test/scheduler.test.ts.
+ */
+export async function runStep(
+  step: string,
+  fn: () => Promise<void>
+): Promise<SchedulerStepResult> {
+  try {
+    await fn();
+    return { step, ok: true };
+  } catch (err) {
+    return {
+      step,
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * The steps below used to share one `try`, so an exception early in the list
+ * (e.g. `syncCalendars` failing on a bad Google credential) silently
+ * prevented every step after it from ever running — including, once,
+ * `postDueWeeklySummary`. Each step now runs through `runStep`, which never
+ * throws, so a broken calendar sync no longer takes down Check-ins,
+ * cutoffs, or summaries with it.
+ *
+ * The last failure per step is kept in memory (not persisted — a restart
+ * clearing it is fine) and surfaced through `/hawkbot status`, since an
+ * operator without shell access to the host otherwise has no way to see a
+ * tick failure at all.
+ */
+const lastStepFailures = new Map<string, SchedulerStepFailure>();
+let lastTickAt: string | null = null;
+
+async function recordStep(
+  step: string,
+  fn: () => Promise<void>
+): Promise<void> {
+  const result = await runStep(step, fn);
+  if (result.ok) {
+    lastStepFailures.delete(step);
+    return;
+  }
+  log.error("scheduler step failed", { step, error: result.error });
+  lastStepFailures.set(step, {
+    step,
+    error: result.error,
+    at: new Date().toISOString(),
+  });
+}
+
+export function getSchedulerDiagnostics(): {
+  lastTickAt: string | null;
+  failures: SchedulerStepFailure[];
+} {
+  return { lastTickAt, failures: [...lastStepFailures.values()] };
+}
+
 export async function runSchedulerTick(): Promise<void> {
   const installed = currentInstallation();
   if (!installed) return;
   const { client, botUserId } = installed;
 
-  try {
-    await syncCalendars(client);
-    await postDueWeeklySummary(client);
-    await postDueMentorSummary(client);
-    await postDueNoResponseAlert(client, botUserId);
-    await postDueCheckins(client, botUserId);
-    await finalizeDueCutoffs(client, botUserId);
-  } catch (err) {
-    log.error("scheduler tick failed", { error: String(err) });
-  }
+  await recordStep("calendar sync", () => syncCalendars(client));
+  await recordStep("weekly summary", () => postDueWeeklySummary(client));
+  await recordStep("mentor summary", () => postDueMentorSummary(client));
+  await recordStep("no-response alert", () =>
+    postDueNoResponseAlert(client, botUserId)
+  );
+  await recordStep("check-ins", () => postDueCheckins(client, botUserId));
+  await recordStep("cutoffs", () => finalizeDueCutoffs(client, botUserId));
+
+  lastTickAt = new Date().toISOString();
 }
 
 export function startScheduler(): NodeJS.Timeout {
