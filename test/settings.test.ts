@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  isCalendarId,
   SETTINGS,
   checkSetting,
   unwrapChannel,
@@ -142,7 +143,7 @@ test("the weekly summary time is a day plus a 24-hour time", () => {
   assert.equal(checkSetting("weekly_summary_time", "12:00").ok, false);
 });
 
-test("the Informational and Mentor/Teacher Calendar ids just need to be non-blank, same as the Team Meeting Calendar id", () => {
+test("the Informational and Mentor/Teacher Calendar ids are shape-checked, same as the Team Meeting Calendar id", () => {
   assert.equal(
     checkSetting("informational_calendar_id", "info@group.calendar.google.com")
       .ok,
@@ -229,4 +230,28 @@ test("Slack's escaped usergroup mention is unwrapped for the mentor usergroup to
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.value, "hawk-mentors");
+});
+
+// The ad-hoc probe (`/hawkbot calendar <id>`) has to apply the same shape rule
+// `config set` applies, or it would happily test an id the bot could never be
+// configured with — and report success for something unusable.
+test("isCalendarId accepts the shapes Google issues and rejects invisible characters", () => {
+  assert.equal(isCalendarId("team@group.calendar.google.com"), true);
+  assert.equal(isCalendarId("primary"), true);
+  assert.equal(
+    isCalendarId("en.usa#holiday@group.v.calendar.google.com"),
+    true
+  );
+  assert.equal(
+    isCalendarId(
+      "c_f28f2b2f7fac90b1a6c8bb2819b15f054799129d919c05b22c7e68b7752165cc@group.calendar.google.com"
+    ),
+    true
+  );
+  assert.equal(isCalendarId("  team@group.calendar.google.com  "), true);
+
+  assert.equal(isCalendarId(""), false);
+  assert.equal(isCalendarId("not-an-id"), false);
+  assert.equal(isCalendarId("team​@group.calendar.google.com"), false);
+  assert.equal(isCalendarId("team @group.calendar.google.com"), false);
 });

@@ -9,6 +9,7 @@ import {
   describeCalendarInventory,
   type ConfiguredCalendar,
 } from "../domain/calendarAccess.js";
+import { isCalendarId } from "../domain/settings.js";
 import { formatWeeklySummaryLine } from "../domain/weeklySummary.js";
 import { log } from "../logger.js";
 import { CALENDAR_SOURCES } from "../scheduler.js";
@@ -17,6 +18,14 @@ import type { Command } from "./types.js";
 const PREVIEW_COUNT = 3;
 
 type Preview = { text: string; failed: boolean };
+
+/**
+ * A calendar Google publishes and anyone can read. Offered as a control:
+ * running the probe against it separates "this account cannot read *any*
+ * calendar" from "these particular calendars are not shared with it", which
+ * is not a distinction the configured calendars can make on their own.
+ */
+const PUBLIC_CONTROL_CALENDAR = "en.usa#holiday@group.v.calendar.google.com";
 
 async function previewOne(
   settingKey: (typeof CALENDAR_SOURCES)[number]["settingKey"],
@@ -29,7 +38,13 @@ async function previewOne(
       failed: false,
     };
   }
+  return previewCalendar(label, calendarId);
+}
 
+async function previewCalendar(
+  label: string,
+  calendarId: string
+): Promise<Preview> {
   let raw;
   try {
     raw = await fetchCalendarEvents(calendarId);
@@ -130,9 +145,14 @@ function identityLine(): string {
 export const calendar: Command = {
   name: "calendar",
   summary: "Preview the next few events on each connected calendar",
+  usage: "calendar | calendar <calendar-id> | calendar control",
   adminOnly: true,
-  async run() {
+  async run(ctx) {
     const identity = identityLine();
+    const argument = ctx.rest.trim();
+
+    if (argument) return probeReply(identity, argument);
+
     const previews = await Promise.all(
       CALENDAR_SOURCES.map(({ settingKey, label }) =>
         previewOne(settingKey, label)
@@ -147,3 +167,50 @@ export const calendar: Command = {
     return { text: [identity, ...sections].join("\n\n") };
   },
 };
+
+/**
+ * `/hawkbot calendar <id>` — read a calendar without storing it anywhere.
+ *
+ * Configuring an id to find out whether it works has a cost: the scheduler
+ * picks it up on the next tick and starts creating Events, posting Check-ins
+ * and rewriting the Weekly Summary from whatever it found. That makes the
+ * obvious experiment — "does this account work against a calendar I know is
+ * fine?" — one nobody should have to run against live settings.
+ *
+ * `calendar control` fills in a calendar Google publishes to everyone, which
+ * is the control that separates "cannot read anything" from "cannot read
+ * *these*". Neither answer is reachable from the configured calendars alone.
+ */
+async function probeReply(
+  identity: string,
+  argument: string
+): Promise<{ text: string }> {
+  const isControl = argument.toLowerCase() === "control";
+  const calendarId = isControl ? PUBLIC_CONTROL_CALENDAR : argument;
+
+  if (!isCalendarId(calendarId)) {
+    return {
+      text: [
+        identity,
+        `\`${calendarId}\` is not shaped like a calendar id.`,
+        "Expected something like `team@group.calendar.google.com`, or `control` to test against a calendar Google publishes to everyone.",
+        "If it looks correct, the paste carried an invisible character — retype it.",
+      ].join("\n\n"),
+    };
+  }
+
+  const label = isControl
+    ? "Control — Google's public US Holidays calendar"
+    : `Probe — \`${calendarId}\``;
+  const { text, failed } = await previewCalendar(label, calendarId);
+
+  const verdict = isControl
+    ? failed
+      ? "*This is the informative failure.* The account cannot read even a calendar Google publishes to the whole world, so nothing is wrong with your calendars or their sharing — the problem is the credential, its Cloud project, or a policy applying to the app itself."
+      : "*The account can read public calendars fine.* So the credential, the project and the API all work, and the problem is specific to your calendars — they are not shared with this address, whatever the sharing dialog shows."
+    : failed
+      ? "_Not stored — this was a read-only probe._"
+      : "_Not stored — this was a read-only probe. Set it for real with `/hawkbot config set <key> <id>`._";
+
+  return { text: [identity, text, verdict].join("\n\n") };
+}
