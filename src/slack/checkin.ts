@@ -1,5 +1,6 @@
 import type { WebClient } from "@slack/web-api";
 import type { EventRow } from "../db/repo.js";
+import { log } from "../logger.js";
 import { fetchChannelRoster } from "./roster.js";
 
 /**
@@ -87,8 +88,20 @@ export async function postCheckinPost(
     );
   }
 
+  // A failure here (missing scope, rate limit, ...) must not stop the
+  // caller from recording the post as sent — the message is already live,
+  // and losing a seeded reaction is far cheaper than reposting this same
+  // Event's Check-in every scheduler tick until the failure clears (#33).
   for (const name of PRE_POPULATED_REACTIONS) {
-    await client.reactions.add({ channel, timestamp: ts, name });
+    await client.reactions.add({ channel, timestamp: ts, name }).catch((err) =>
+      log.error("could not seed check-in reaction", {
+        eventId: event.id,
+        channel,
+        ts,
+        name,
+        error: String(err),
+      })
+    );
   }
 
   const roster = await fetchChannelRoster(client, channel, botUserId);
