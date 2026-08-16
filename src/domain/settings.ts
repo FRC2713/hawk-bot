@@ -57,6 +57,16 @@ const CHANNEL_ID = /^[CG][A-Z0-9]{2,}$/;
  */
 const CALENDAR_ID = /^(primary|[A-Za-z0-9._%+#-]+@[A-Za-z0-9.-]+)$/;
 
+/**
+ * Whether a string is shaped like a calendar id at all. Exported so an ad-hoc
+ * probe (`/hawkbot calendar <id>`) applies exactly the rule `config set`
+ * applies — a probe that accepted an id the setting would reject would be
+ * testing something the bot can never actually be configured with.
+ */
+export function isCalendarId(value: string): boolean {
+  return CALENDAR_ID.test(value.trim());
+}
+
 const CALENDAR_ID_EXPECTS =
   "a Google Calendar id like team@group.calendar.google.com — copy it from " +
   "the calendar's Settings and sharing → Integrate calendar. If it looks " +

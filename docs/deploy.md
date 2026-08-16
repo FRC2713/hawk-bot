@@ -105,6 +105,21 @@ to a calendar id that doesn't exist.
 `/hawkbot status` shows the last failure per scheduler step, so a sync that
 broke between smoke tests is visible without host log access.
 
+Two ways to test an id without committing to it — neither stores anything, so
+the scheduler never sees them:
+
+```
+/hawkbot calendar <calendar-id>   # read one calendar, ad hoc
+/hawkbot calendar control         # read a calendar Google publishes to everyone
+```
+
+`control` is the one that settles an ambiguous failure. If the control fails
+too, the account cannot read _any_ calendar and the problem is the credential,
+its Cloud project, or a policy on the app — not your calendars or their
+sharing. If the control succeeds while yours fail, the opposite: everything
+about the credential works and the calendars genuinely are not shared with the
+service account's address, whatever the sharing dialog appears to show.
+
 ## 4. Run it
 
 ```sh
