@@ -18,8 +18,8 @@ All four are seconds; run them before pushing. `docker.yml` publishes
 
 ## What this is
 
-The Red Hawk Robotics team assistant for Slack: one slash command, `/hawk`,
-with subcommands behind it. Node 22, TypeScript, Bolt, SQLite via
+The Red Hawk Robotics team assistant for Slack: one slash command,
+`/hawkbot`, with subcommands behind it. Node 22, TypeScript, Bolt, SQLite via
 better-sqlite3. One container, one volume.
 
 It is the sibling of [hawk-mod](https://github.com/FRC2713/hawk-mod), and the
@@ -72,10 +72,16 @@ say so, because the default should be the one that cannot embarrass anyone.
 
 ### Authorization comes from Slack
 
-`adminOnly: true` on a command means "workspace Owner or Admin", resolved via
-`users.info`. There is no roster and no allow-list in this repo, and adding one
-would be a real decision, not a refactor: a second list drifts, and it drifts
-in the direction of someone keeping access after they have left.
+`adminOnly: true` on a command requires the caller to be a HawkBot Admin:
+membership in the Slack User Group named by the `admin_usergroup` setting,
+with workspace Owners always included too as a bootstrap fallback so an
+empty or misconfigured group can't lock everyone out (see ADR-0004 and
+CONTEXT.md, HawkBot Admin). Both checks are resolved live against Slack
+(`usergroups.users.list` and `users.info`) and cached 5 minutes in
+`slack/authz.ts`. There is no roster or allow-list of user ids stored in
+this repo's own database — the group membership lives in Slack itself,
+which is what keeps it from drifting in the direction of someone keeping
+access after they've left.
 
 ### Rules live in `domain/`
 
