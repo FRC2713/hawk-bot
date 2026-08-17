@@ -22,12 +22,13 @@ import { toWeeklySummaryEventInfo } from "./weeklySummary.js";
 
 /**
  * The Mentor/Teacher Weekly Summary: if due, deletes the previous post and
- * sends a fresh one covering the next two Monday–Sunday weeks (wider than
- * the Team Meeting Weekly Summary's one week — more lead time for travel
- * and unavailability conflicts). Unlike the Team Meeting Weekly Summary,
- * there is no mid-window edit-in-place here — a change mid-week shows up
- * corrected on the next scheduled post rather than a live edit, since this
- * is an admin-only FYI digest, not something people are actively tracking.
+ * sends a fresh one covering the 14 days starting tomorrow — a rolling
+ * look-ahead (see upcomingTwoWeekRange), wider than the Team Meeting Weekly
+ * Summary's one-week span for more lead time on travel and unavailability
+ * conflicts. Unlike the Team Meeting Weekly Summary, there is no mid-window
+ * edit-in-place here — a change mid-week shows up corrected on the next
+ * scheduled post rather than a live edit, since this is an admin-only FYI
+ * digest, not something people are actively tracking.
  */
 export async function postDueMentorSummary(client: WebClient): Promise<void> {
   const calendarId = getSetting("mentor_calendar_id");
