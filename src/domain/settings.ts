@@ -37,6 +37,14 @@ export type Setting = {
   /** Shown when the value is rejected, so the message can say what is wanted. */
   expects: string;
   validate: (value: string) => boolean;
+  /**
+   * Declares this setting's stored value as a Slack channel id or Slack User
+   * Group id, so `/hawkbot config` can resolve it to a human-readable name
+   * for display. Unset for every setting that isn't one of those two shapes —
+   * explicit here rather than re-derived from `validate`, which a display
+   * concern shouldn't need to reverse-engineer.
+   */
+  resolveAs?: "channel" | "usergroup";
 };
 
 /** A Slack channel id, as it arrives from `#channel` autocomplete or by hand. */
@@ -87,6 +95,7 @@ export const SETTINGS: readonly Setting[] = [
     summary: "Channel Hawk Bot posts team-wide announcements to",
     expects: "a channel id like C0123456789 (not the #name)",
     validate: (v) => CHANNEL_ID.test(v.trim()),
+    resolveAs: "channel",
   },
   {
     key: "home_note",
@@ -138,6 +147,7 @@ export const SETTINGS: readonly Setting[] = [
       "Private channel the Event Attendance Report posts to after each Event's cutoff",
     expects: "a channel id like C0123456789 (not the #name)",
     validate: (v) => CHANNEL_ID.test(v.trim()),
+    resolveAs: "channel",
   },
   {
     key: "admin_usergroup",
@@ -148,6 +158,7 @@ export const SETTINGS: readonly Setting[] = [
     // live lookup (handle -> Slack's internal group id) happens as an I/O
     // step in commands/config.ts, which is what actually gets stored.
     validate: (v) => /^[a-zA-Z0-9_-]{1,80}$/.test(v.trim()),
+    resolveAs: "usergroup",
   },
   {
     key: "weekly_summary_time",
@@ -177,6 +188,7 @@ export const SETTINGS: readonly Setting[] = [
     summary: "Channel the Mentor/Teacher Weekly Summary posts to",
     expects: "a channel id like C0123456789 (not the #name)",
     validate: (v) => CHANNEL_ID.test(v.trim()),
+    resolveAs: "channel",
   },
   {
     key: "mentor_summary_time",
@@ -193,6 +205,7 @@ export const SETTINGS: readonly Setting[] = [
       "Private channel the No Response Alert Report posts to — set to enable it, unset to disable",
     expects: "a channel id like C0123456789 (not the #name)",
     validate: (v) => CHANNEL_ID.test(v.trim()),
+    resolveAs: "channel",
   },
   {
     key: "no_response_alert_time",
@@ -218,6 +231,7 @@ export const SETTINGS: readonly Setting[] = [
     // Format only, same as admin_usergroup — the live handle -> group id
     // lookup happens as an I/O step in commands/config.ts.
     validate: (v) => /^[a-zA-Z0-9_-]{1,80}$/.test(v.trim()),
+    resolveAs: "usergroup",
   },
   {
     key: "mentor_usergroup",
@@ -225,6 +239,7 @@ export const SETTINGS: readonly Setting[] = [
       "The Slack User Group holding the team's mentors — the No Response Alert Report only ever evaluates Students and Mentors",
     expects: "a user group handle, e.g. hawk-mentors (with or without the @)",
     validate: (v) => /^[a-zA-Z0-9_-]{1,80}$/.test(v.trim()),
+    resolveAs: "usergroup",
   },
 ];
 

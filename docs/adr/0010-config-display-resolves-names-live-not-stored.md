@@ -1,0 +1,5 @@
+# Config display resolves Slack names live, not stored at write time
+
+`/hawkbot config` stores channel and usergroup settings as raw Slack IDs. When displaying them, the human-readable name (channel name, usergroup handle) is resolved live against the Slack API at display time — cached 5 minutes with serve-stale-on-error, mirroring the existing `groupCache`/`ownerCache` pattern in `src/slack/authz.ts` — rather than resolved once at `config set` time and stored alongside the ID in the settings table.
+
+We considered storing the resolved name at write time, since that's cheaper per read. We rejected it because a channel or usergroup rename on Slack's side would then silently go stale in the display until someone re-ran `config set` — the whole point of showing the name is to reflect Slack's current state, and a stored copy can't do that. Live-with-cache costs at most 8 API calls per `config` invocation (bounded by the fixed number of ID-shaped settings), refreshed at most once per 5 minutes.
