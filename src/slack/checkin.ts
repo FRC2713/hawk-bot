@@ -1,6 +1,12 @@
 import type { WebClient } from "@slack/web-api";
 import type { EventRow } from "../db/repo.js";
 import { log } from "../logger.js";
+import { listHawkBotAdmins } from "./authz.js";
+import {
+  describeChannelAccessError,
+  ensureChannelMembership,
+} from "./channelAccess.js";
+import { openDirectMessage } from "./dm.js";
 import { fetchChannelRoster } from "./roster.js";
 
 /**
@@ -88,25 +94,70 @@ export async function postCheckinPost(
     );
   }
 
-  // A failure here (missing scope, rate limit, ...) must not stop the
-  // caller from recording the post as sent — the message is already live,
-  // and losing a seeded reaction is far cheaper than reposting this same
-  // Event's Check-in every scheduler tick until the failure clears (#33).
+  // A failure here (missing scope, rate limit, not a channel member, ...)
+  // must not stop the caller from recording the post as sent — the message
+  // is already live, and losing a seeded reaction is far cheaper than
+  // reposting this same Event's Check-in every scheduler tick until the
+  // failure clears (#33).
+  await ensureChannelMembership(client, channel);
+
+  const reactionFailures: string[] = [];
   for (const name of PRE_POPULATED_REACTIONS) {
-    await client.reactions.add({ channel, timestamp: ts, name }).catch((err) =>
-      log.error("could not seed check-in reaction", {
-        eventId: event.id,
-        channel,
-        ts,
-        name,
-        error: String(err),
-      })
+    await client.reactions
+      .add({ channel, timestamp: ts, name })
+      .catch((err) => {
+        log.error("could not seed check-in reaction", {
+          eventId: event.id,
+          channel,
+          ts,
+          name,
+          error: String(err),
+        });
+        reactionFailures.push(describeChannelAccessError(err) ?? String(err));
+      });
+  }
+  if (reactionFailures.length > 0) {
+    await notifyReactionSeedFailure(
+      client,
+      event,
+      channel,
+      reactionFailures[0]!
     );
   }
 
   const roster = await fetchChannelRoster(client, channel, botUserId);
 
   return { channel, ts, roster };
+}
+
+/**
+ * A missing seeded reaction is cosmetic — people can still react by hand —
+ * but it used to be silent: nothing in Slack itself ever told an admin it
+ * happened, only a container log line no one was looking at (issue #33).
+ * One DM per Check-in Post reaches every HawkBot Admin, not just whoever
+ * happens to notice the post looks bare.
+ */
+async function notifyReactionSeedFailure(
+  client: WebClient,
+  event: EventRow,
+  channel: string,
+  reason: string
+): Promise<void> {
+  const text = [
+    `⚠️ Couldn't seed reactions on the Check-in Post for *${event.title}* in <#${channel}>.`,
+    reason,
+  ].join("\n");
+  for (const userId of await listHawkBotAdmins(client)) {
+    const dmChannel = await openDirectMessage(client, userId);
+    if (!dmChannel) continue;
+    await client.chat.postMessage({ channel: dmChannel, text }).catch((err) =>
+      log.error("could not DM reaction-seed failure", {
+        userId,
+        eventId: event.id,
+        error: String(err),
+      })
+    );
+  }
 }
 
 /** One `~old~ → new` line per changed field worth showing a before/after for. */

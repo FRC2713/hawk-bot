@@ -50,6 +50,7 @@ import {
 } from "./slack/checkin.js";
 import { syncAttendanceFromSlack } from "./slack/attendanceEvents.js";
 import { listHawkBotAdmins } from "./slack/authz.js";
+import { describeChannelAccessError } from "./slack/channelAccess.js";
 import { openDirectMessage } from "./slack/dm.js";
 import { postDueMentorSummary } from "./mentorSummary.js";
 import { postDueNoResponseAlert } from "./noResponseAlert.js";
@@ -365,10 +366,12 @@ export async function attemptEventCutoff(
 ): Promise<VerificationResult> {
   let reactions = new Map<string, string[]>();
   let resyncSucceeded = true;
+  let resyncFailureDetail: string | undefined;
   try {
     ({ reactions } = await syncAttendanceFromSlack(client, event, botUserId));
   } catch (err) {
     resyncSucceeded = false;
+    resyncFailureDetail = describeChannelAccessError(err);
     log.error("cutoff resync failed", {
       eventId: event.id,
       error: String(err),
@@ -381,6 +384,7 @@ export async function attemptEventCutoff(
 
   const verification = verifyAttendanceCoverage({
     resyncSucceeded,
+    resyncFailureDetail,
     reactedUserIds: [...reactions.keys()],
     recordedUserIds,
   });

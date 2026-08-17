@@ -55,6 +55,9 @@ oauth_config:
       # replies for the Attendance Note, and the season CSV export DM.
       - reactions:read
       - reactions:write
+      # Self-joins a public announce_channel before reacting — chat:write.public
+      # covers posting there without an invite, but reactions do not.
+      - channels:join
       - channels:history
       - groups:history
       - files:write
