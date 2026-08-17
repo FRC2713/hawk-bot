@@ -162,7 +162,7 @@ export function toAttendanceCsv(rows: readonly AttendanceCsvRow[]): string {
 
 export type VerificationResult =
   | { ok: true }
-  | { ok: false; reason: "resync_failed" }
+  | { ok: false; reason: "resync_failed"; detail?: string }
   | { ok: false; reason: "coverage_mismatch"; missingUserIds: string[] };
 
 /**
@@ -174,10 +174,16 @@ export type VerificationResult =
  */
 export function verifyAttendanceCoverage(args: {
   resyncSucceeded: boolean;
+  /** A plain-English reason the resync failed, e.g. from `describeChannelAccessError` — omitted when unknown or resync succeeded. */
+  resyncFailureDetail?: string;
   reactedUserIds: readonly string[];
   recordedUserIds: readonly string[];
 }): VerificationResult {
-  if (!args.resyncSucceeded) return { ok: false, reason: "resync_failed" };
+  if (!args.resyncSucceeded) {
+    return args.resyncFailureDetail
+      ? { ok: false, reason: "resync_failed", detail: args.resyncFailureDetail }
+      : { ok: false, reason: "resync_failed" };
+  }
   const recorded = new Set(args.recordedUserIds);
   const missingUserIds = args.reactedUserIds.filter((id) => !recorded.has(id));
   if (missingUserIds.length > 0) {
@@ -190,9 +196,12 @@ export function verifyAttendanceCoverage(args: {
 export function describeVerificationFailure(
   result: Extract<VerificationResult, { ok: false }>
 ): string {
-  return result.reason === "resync_failed"
-    ? "the reaction resync failed (a Slack API call errored)"
-    : `${result.missingUserIds.length} reacted user(s) have no matching attendance record`;
+  if (result.reason === "resync_failed") {
+    return result.detail
+      ? `the reaction resync failed: ${result.detail}`
+      : "the reaction resync failed (a Slack API call errored)";
+  }
+  return `${result.missingUserIds.length} reacted user(s) have no matching attendance record`;
 }
 
 export type AttendanceReportRow = {

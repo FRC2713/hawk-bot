@@ -4,6 +4,7 @@ import {
   attendancePercent,
   attendanceStatusFor,
   currentSeasonRange,
+  describeVerificationFailure,
   formatAttendanceReportSummary,
   formatAttendanceReportTable,
   hoursCredited,
@@ -164,6 +165,26 @@ test("verification fails outright if the resync itself failed, regardless of cov
     recordedUserIds: [],
   });
   assert.deepEqual(result, { ok: false, reason: "resync_failed" });
+});
+
+test("a resync failure detail carries through to the result and the description", () => {
+  const result = verifyAttendanceCoverage({
+    resyncSucceeded: false,
+    resyncFailureDetail: "I'm not a member of that channel.",
+    reactedUserIds: [],
+    recordedUserIds: [],
+  });
+  assert.deepEqual(result, {
+    ok: false,
+    reason: "resync_failed",
+    detail: "I'm not a member of that channel.",
+  });
+  assert.equal(
+    describeVerificationFailure(
+      result as Extract<typeof result, { ok: false }>
+    ),
+    "the reaction resync failed: I'm not a member of that channel."
+  );
 });
 
 test("verification passes when every reacted user has a recorded row", () => {

@@ -38,6 +38,10 @@ export const BOT_SCOPES = [
   // DMing a season CSV export.
   "reactions:read",
   "reactions:write",
+  // Self-joins a public announce_channel before reacting — chat:write.public
+  // covers posting there without an invite, but reactions.add/reactions.get
+  // need actual membership regardless (see slack/channelAccess.ts, #33).
+  "channels:join",
   "channels:history",
   "groups:history",
   "files:write",
