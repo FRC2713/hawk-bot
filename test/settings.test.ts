@@ -332,3 +332,27 @@ test("a backtick-escaped value is accepted, with or without Slack's linkifying",
     assert.equal(result.value, id);
   }
 });
+
+test("exactly the channel and usergroup settings declare how to resolve them for display", () => {
+  const channelKeys = [
+    "announce_channel",
+    "attendance_report_channel",
+    "mentor_summary_channel",
+    "no_response_alert_channel",
+  ];
+  const usergroupKeys = [
+    "admin_usergroup",
+    "student_usergroup",
+    "mentor_usergroup",
+  ];
+  for (const key of channelKeys) {
+    assert.equal(SETTINGS.find((s) => s.key === key)?.resolveAs, "channel");
+  }
+  for (const key of usergroupKeys) {
+    assert.equal(SETTINGS.find((s) => s.key === key)?.resolveAs, "usergroup");
+  }
+  const resolvable = new Set([...channelKeys, ...usergroupKeys]);
+  for (const s of SETTINGS) {
+    if (!resolvable.has(s.key)) assert.equal(s.resolveAs, undefined, s.key);
+  }
+});

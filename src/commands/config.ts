@@ -1,13 +1,31 @@
+import type { WebClient } from "@slack/web-api";
 import { SLASH_COMMAND } from "../brand.js";
 import { clearSetting, getSetting, setSetting } from "../db/repo.js";
+import { formatResolvedValue } from "../domain/configDisplay.js";
 import { SETTINGS, checkSetting, findSetting } from "../domain/settings.js";
+import { resolveName } from "../slack/nameResolution.js";
 import type { Command } from "./types.js";
 
-function list(): string {
-  const lines = SETTINGS.map((s) => {
-    const current = getSetting(s.key);
-    return `• \`${s.key}\` — ${s.summary}\n    ${current ? `currently \`${current}\`` : "_not set_"}`;
-  });
+async function describeCurrentValue(
+  client: WebClient,
+  current: string,
+  resolveAs: "channel" | "usergroup" | undefined
+): Promise<string> {
+  if (!resolveAs) return `currently \`${current}\``;
+  const resolution = await resolveName(client, resolveAs, current);
+  return `currently \`${formatResolvedValue(current, resolveAs, resolution)}\``;
+}
+
+async function list(client: WebClient): Promise<string> {
+  const lines = await Promise.all(
+    SETTINGS.map(async (s) => {
+      const current = getSetting(s.key);
+      const value = current
+        ? await describeCurrentValue(client, current, s.resolveAs)
+        : "_not set_";
+      return `• \`${s.key}\` — ${s.summary}\n    ${value}`;
+    })
+  );
   return [
     "*Workspace settings*",
     ...lines,
@@ -25,7 +43,7 @@ export const config: Command = {
     const [verb, key, ...valueParts] = ctx.args;
 
     if (!verb || verb.toLowerCase() === "list") {
-      return { text: list() };
+      return { text: await list(ctx.client) };
     }
 
     // Several settings document "unset to disable" as their off switch — the

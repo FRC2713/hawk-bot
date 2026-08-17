@@ -1,22 +1,6 @@
-import {
-  ErrorCode,
-  type WebAPIPlatformError,
-  type WebClient,
-} from "@slack/web-api";
+import type { WebClient } from "@slack/web-api";
 import { log } from "../logger.js";
-
-function isPlatformError(err: unknown): err is WebAPIPlatformError {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    "code" in err &&
-    (err as { code?: unknown }).code === ErrorCode.PlatformError
-  );
-}
-
-function slackErrorCode(err: unknown): string | undefined {
-  return isPlatformError(err) ? err.data.error : undefined;
-}
+import { slackErrorCode } from "./slackErrors.js";
 
 /**
  * `chat:write.public` only covers `chat.postMessage` — every reaction call
