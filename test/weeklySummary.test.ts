@@ -102,24 +102,35 @@ test("the upcoming week starts the day after a Sunday post", () => {
   assert.equal(range.end.toISOString(), "2026-01-12T00:00:00.000Z");
 });
 
-test("posting on a Monday still means next Monday, not today", () => {
+test("posting on a Monday starts tomorrow, not the Monday a week out", () => {
   const postedAt = new Date("2026-01-05T09:00:00Z"); // Monday
   const range = upcomingWeekRange(postedAt);
-  assert.equal(range.start.toISOString(), "2026-01-12T00:00:00.000Z");
+  assert.equal(range.start.toISOString(), "2026-01-06T00:00:00.000Z");
+  assert.equal(range.end.toISOString(), "2026-01-13T00:00:00.000Z");
 });
 
-test("posting mid-week rolls forward to the following Monday", () => {
+test("posting mid-week starts tomorrow too, not the following Monday", () => {
   const postedAt = new Date("2026-01-07T09:00:00Z"); // Wednesday
   const range = upcomingWeekRange(postedAt);
-  assert.equal(range.start.toISOString(), "2026-01-12T00:00:00.000Z");
+  assert.equal(range.start.toISOString(), "2026-01-08T00:00:00.000Z");
+  assert.equal(range.end.toISOString(), "2026-01-15T00:00:00.000Z");
 });
 
-test("the Mentor/Teacher span starts the same Monday as the Team Meeting week, but covers two weeks", () => {
+test("the Mentor/Teacher span starts the same day as the Team Meeting week, but covers two weeks", () => {
   const postedAt = new Date("2026-01-04T12:00:00Z"); // Sunday
   const oneWeek = upcomingWeekRange(postedAt);
   const twoWeeks = upcomingTwoWeekRange(postedAt);
   assert.equal(twoWeeks.start.toISOString(), oneWeek.start.toISOString());
   assert.equal(twoWeeks.end.toISOString(), "2026-01-19T00:00:00.000Z");
+});
+
+test("both spans start the day after a Monday post, matching Aug 17 2026's reported bug", () => {
+  const postedAt = new Date("2026-08-17T12:00:00Z"); // Monday
+  const oneWeek = upcomingWeekRange(postedAt);
+  const twoWeeks = upcomingTwoWeekRange(postedAt);
+  assert.equal(oneWeek.start.toISOString(), "2026-08-18T00:00:00.000Z");
+  assert.equal(twoWeeks.start.toISOString(), "2026-08-18T00:00:00.000Z");
+  assert.equal(twoWeeks.end.toISOString(), "2026-09-01T00:00:00.000Z");
 });
 
 test("a date within the week range is within it; the boundaries and outside are not", () => {

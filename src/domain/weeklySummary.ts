@@ -74,19 +74,23 @@ export function isWeeklySummaryDue(
   return !lastPostedAt || lastPostedAt.getTime() < occurrence.getTime();
 }
 
-/** Local midnight of the next Monday strictly after `date`'s calendar day. */
-function nextMondayStrictlyAfter(date: Date): Date {
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const daysUntilMonday = (1 - d.getDay() + 7) % 7 || 7;
-  d.setDate(d.getDate() + daysUntilMonday);
-  return d;
+/** Local midnight of the day after `date`. */
+function tomorrow(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
 }
 
 export type WeekRange = { start: Date; end: Date };
 
-/** The fixed Monday–Sunday week a Weekly Summary Post posted at `postedAt` covers. */
+/**
+ * The 7 days starting the day after `postedAt` — a rolling look-ahead, not
+ * aligned to any fixed Monday–Sunday week. Previously this jumped to the
+ * next *Monday* after `postedAt`, which meant a post landing on a Monday
+ * skipped an entire week (the closest Monday strictly after a Monday is 7
+ * days out) rather than starting the very next day like every other weekday
+ * did. Rolling from "tomorrow" instead removes that special case entirely.
+ */
 export function upcomingWeekRange(postedAt: Date): WeekRange {
-  const start = nextMondayStrictlyAfter(postedAt);
+  const start = tomorrow(postedAt);
   const end = new Date(
     start.getFullYear(),
     start.getMonth(),
@@ -96,10 +100,10 @@ export function upcomingWeekRange(postedAt: Date): WeekRange {
 }
 
 /**
- * Two consecutive Monday–Sunday weeks, starting the same Monday
- * `upcomingWeekRange` would — the Mentor/Teacher Weekly Summary's span,
- * wider than the Team Meeting Weekly Summary's so unavailability and travel
- * conflicts surface with more lead time.
+ * Two consecutive rolling weeks, starting the same day `upcomingWeekRange`
+ * would — the Mentor/Teacher Weekly Summary's span, wider than the Team
+ * Meeting Weekly Summary's one week so unavailability and travel conflicts
+ * surface with more lead time.
  */
 export function upcomingTwoWeekRange(postedAt: Date): WeekRange {
   const { start } = upcomingWeekRange(postedAt);
