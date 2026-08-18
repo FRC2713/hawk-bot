@@ -188,6 +188,73 @@ export function toAttendanceCsv(rows: readonly AttendanceCsvRow[]): string {
   return [CSV_HEADER, ...lines].join("\n") + "\n";
 }
 
+/**
+ * Same aligned-column, code-block style as `formatAttendanceReportTable` —
+ * a season-shaped row (`AttendanceCsvRow`) instead of a per-event one, for
+ * previewing the season export's own data inline in Slack.
+ */
+export function formatSeasonAttendanceTable(
+  rows: readonly AttendanceCsvRow[]
+): string {
+  if (rows.length === 0) return "```\n(no attendance data yet)\n```";
+
+  const col = (label: string, values: readonly string[]) =>
+    Math.max(label.length, ...values.map((v) => v.length));
+
+  const percents = rows.map(
+    (r) =>
+      `${attendancePercent(r.eventsAttending, r.eventsNotAttending, r.eventsNoResponse)}%`
+  );
+  const nameWidth = col(
+    "Name",
+    rows.map((r) => r.displayName)
+  );
+  const attendingWidth = col(
+    "Attending",
+    rows.map((r) => String(r.eventsAttending))
+  );
+  const notAttendingWidth = col(
+    "Not Attending",
+    rows.map((r) => String(r.eventsNotAttending))
+  );
+  const noResponseWidth = col(
+    "No Response",
+    rows.map((r) => String(r.eventsNoResponse))
+  );
+  const percentWidth = col("Attendance", percents);
+
+  const header =
+    "Name".padEnd(nameWidth) +
+    "  " +
+    "Attending".padEnd(attendingWidth) +
+    "  " +
+    "Not Attending".padEnd(notAttendingWidth) +
+    "  " +
+    "No Response".padEnd(noResponseWidth) +
+    "  " +
+    "Attendance".padEnd(percentWidth) +
+    "  " +
+    "Hours";
+
+  const lines = rows.map((r, i) =>
+    (
+      r.displayName.padEnd(nameWidth) +
+      "  " +
+      String(r.eventsAttending).padEnd(attendingWidth) +
+      "  " +
+      String(r.eventsNotAttending).padEnd(notAttendingWidth) +
+      "  " +
+      String(r.eventsNoResponse).padEnd(noResponseWidth) +
+      "  " +
+      (percents[i] ?? "").padEnd(percentWidth) +
+      "  " +
+      String(r.hoursCredited)
+    ).trimEnd()
+  );
+
+  return ["```", header, ...lines, "```"].join("\n");
+}
+
 export type VerificationResult =
   | { ok: true }
   | { ok: false; reason: "resync_failed"; detail?: string }

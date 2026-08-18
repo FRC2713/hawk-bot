@@ -5,6 +5,7 @@ import {
   attendancePercent,
   currentSeasonRange,
   formatDateRange,
+  formatSeasonAttendanceTable,
   isoDate,
   toAttendanceCsv,
   type AttendanceCsvRow,
@@ -167,7 +168,7 @@ export const report: Command = {
         };
       }
       return {
-        text: `*Season attendance preview — first ${preview.length} of ${rows.length}, ${formatDateRange(range.start, range.end)}*\n\`\`\`\n${toAttendanceCsv(preview)}\`\`\``,
+        text: `*Season attendance preview — first ${preview.length} of ${rows.length}, ${formatDateRange(range.start, range.end)}*\n${formatSeasonAttendanceTable(preview)}`,
       };
     }
 
