@@ -45,6 +45,10 @@ export const BOT_SCOPES = [
   "channels:history",
   "groups:history",
   "files:write",
+  // Confirms a season export CSV actually landed in the admin's DM —
+  // files.uploadV2's own response can't be trusted for that (see
+  // commands/report.ts, confirmDelivered).
+  "im:history",
   // HawkBot Admin: resolving the admin_usergroup setting's handle to a
   // group id, and reading that group's membership. The other half of the
   // authorization model, alongside the Owner check above.

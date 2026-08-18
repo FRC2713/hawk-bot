@@ -61,6 +61,10 @@ oauth_config:
       - channels:history
       - groups:history
       - files:write
+      # Confirms a season export CSV actually landed in the admin's DM —
+      # files.uploadV2's own response can't be trusted for that (see
+      # commands/report.ts, confirmDelivered).
+      - im:history
       # HawkBot Admin: resolving admin_usergroup's handle to a group id, and
       # reading that group's membership — the other half of the
       # authorization model, alongside the Owner check above.

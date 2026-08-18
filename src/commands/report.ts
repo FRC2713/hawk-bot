@@ -1,3 +1,4 @@
+import type { WebClient } from "@slack/web-api";
 import { SLASH_COMMAND } from "../brand.js";
 import { getPersonSeasonOutcomes, getTeamSeasonOutcomes } from "../db/repo.js";
 import {
@@ -46,6 +47,33 @@ function parseRange(
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()))
     return undefined;
   return { start, end };
+}
+
+/**
+ * `files.uploadV2`'s own response can't be trusted to say whether a file
+ * actually got shared — its file object leaves `ims`/`channels`/`shares`
+ * empty even for uploads that genuinely succeed (a known gap in Slack's
+ * newer upload API, still open upstream: slackapi/node-slack-sdk#2040).
+ * The DM's real message history is the only place that reliably shows
+ * whether the file landed. Slack shares a file asynchronously after
+ * `completeUploadExternal` returns — it runs a security scan first — so
+ * this polls briefly rather than checking once.
+ */
+async function confirmDelivered(
+  client: WebClient,
+  dmChannel: string,
+  fileId: string | undefined
+): Promise<boolean> {
+  if (!fileId) return false;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 1000));
+    const history = await client.conversations
+      .history({ channel: dmChannel, limit: 10 })
+      .catch(() => undefined);
+    if (history?.messages?.some((m) => m.files?.some((f) => f.id === fileId)))
+      return true;
+  }
+  return false;
 }
 
 export const report: Command = {
@@ -116,22 +144,17 @@ export const report: Command = {
       const upload = await ctx.client.filesUploadV2({
         channel_id: dmChannel,
         filename: `attendance-season-${isoDate(range.start)}.csv`,
+        filetype: "csv",
         content: toAttendanceCsv(rows),
         initial_comment: `Season attendance export, ${formatDateRange(range.start, range.end)}.`,
       });
 
-      // Slack's own upload flow can report `ok: true` and still not actually
-      // share the file anywhere (empty `ims`/`channels`/`shares` on the
-      // completed file) — a known Slack-side flakiness with file uploads,
-      // not something a thrown error would ever catch. Confirm the file
-      // landed in the DM before telling the admin it did.
-      const delivered = upload.files.some((completion) =>
-        completion.files?.some((file) => file.ims?.includes(dmChannel))
-      );
-      if (!delivered) {
+      const fileId = upload.files[0]?.files?.[0]?.id;
+      if (!(await confirmDelivered(ctx.client, dmChannel, fileId))) {
         log.error("season export uploaded but not confirmed delivered", {
           userId: ctx.userId,
           dmChannel,
+          fileId,
         });
         return {
           text: "The export uploaded to Slack but didn't land in your DM — try again, and tell a coach if it keeps happening.",
