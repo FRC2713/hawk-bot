@@ -3,9 +3,12 @@ import { getPersonSeasonOutcomes, getTeamSeasonOutcomes } from "../db/repo.js";
 import {
   attendancePercent,
   currentSeasonRange,
+  formatDateRange,
+  isoDate,
   toAttendanceCsv,
   type AttendanceCsvRow,
 } from "../domain/attendance.js";
+import { log } from "../logger.js";
 import { openDirectMessage } from "../slack/dm.js";
 import type { Command } from "./types.js";
 
@@ -45,10 +48,6 @@ function parseRange(
   return { start, end };
 }
 
-function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
 export const report: Command = {
   name: "report",
   summary: "Attendance reports — your own hours, or a season export",
@@ -70,7 +69,7 @@ export const report: Command = {
         summarize(outcomes);
       return {
         text: [
-          `*Your attendance, ${isoDate(range.start)} – ${isoDate(range.end)}*`,
+          `*Your attendance, ${formatDateRange(range.start, range.end)}*`,
           `• Attending: ${attending}`,
           `• Not attending: ${notAttending}`,
           `• No response: ${noResponse}`,
@@ -114,12 +113,31 @@ export const report: Command = {
       if (!dmChannel) {
         return { text: "Couldn't open a DM to send the export — try again?" };
       }
-      await ctx.client.files.uploadV2({
+      const upload = await ctx.client.filesUploadV2({
         channel_id: dmChannel,
         filename: `attendance-season-${isoDate(range.start)}.csv`,
         content: toAttendanceCsv(rows),
-        initial_comment: `Season attendance export, ${isoDate(range.start)} – ${isoDate(range.end)}.`,
+        initial_comment: `Season attendance export, ${formatDateRange(range.start, range.end)}.`,
       });
+
+      // Slack's own upload flow can report `ok: true` and still not actually
+      // share the file anywhere (empty `ims`/`channels`/`shares` on the
+      // completed file) — a known Slack-side flakiness with file uploads,
+      // not something a thrown error would ever catch. Confirm the file
+      // landed in the DM before telling the admin it did.
+      const delivered = upload.files.some((completion) =>
+        completion.files?.some((file) => file.ims?.includes(dmChannel))
+      );
+      if (!delivered) {
+        log.error("season export uploaded but not confirmed delivered", {
+          userId: ctx.userId,
+          dmChannel,
+        });
+        return {
+          text: "The export uploaded to Slack but didn't land in your DM — try again, and tell a coach if it keeps happening.",
+        };
+      }
+
       return { text: "Sent you a DM with the season attendance CSV." };
     }
 

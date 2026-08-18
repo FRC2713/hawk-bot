@@ -113,6 +113,34 @@ export function currentSeasonRange(now: Date): SeasonRange {
   return { start, end };
 }
 
+export function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+const MONTH_ABBR = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+/** `isoDate()`'s `YYYY-MM-DD` is for filenames; this is for people to read. */
+function formatDateHuman(d: Date): string {
+  return `${MONTH_ABBR[d.getUTCMonth()] ?? ""} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+}
+
+export function formatDateRange(start: Date, end: Date): string {
+  return `${formatDateHuman(start)} – ${formatDateHuman(end)}`;
+}
+
 export function attendancePercent(
   attending: number,
   notAttending: number,

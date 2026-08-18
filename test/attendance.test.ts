@@ -7,8 +7,10 @@ import {
   describeVerificationFailure,
   formatAttendanceReportSummary,
   formatAttendanceReportTable,
+  formatDateRange,
   hoursCredited,
   isClockReaction,
+  isoDate,
   isThumbsUpReaction,
   needsLateNudge,
   resolveAllDayHours,
@@ -132,6 +134,20 @@ test("the season starts July 1st and rolls over exactly then", () => {
 test("attendance percent is out of every event that was not a no-response, plus no-response itself", () => {
   assert.equal(attendancePercent(3, 1, 1), 60);
   assert.equal(attendancePercent(0, 0, 0), 0);
+});
+
+test("isoDate reads YYYY-MM-DD off the UTC calendar date", () => {
+  assert.equal(isoDate(new Date("2026-07-01T00:00:00Z")), "2026-07-01");
+});
+
+test("formatDateRange is human-readable, not the raw ISO dates", () => {
+  assert.equal(
+    formatDateRange(
+      new Date("2026-07-01T00:00:00Z"),
+      new Date("2027-07-01T00:00:00Z")
+    ),
+    "Jul 1, 2026 – Jul 1, 2027"
+  );
 });
 
 test("CSV export escapes fields that contain commas or quotes", () => {
