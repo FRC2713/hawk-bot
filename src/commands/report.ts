@@ -69,7 +69,19 @@ async function confirmDelivered(
     if (attempt > 0) await new Promise((r) => setTimeout(r, 1000));
     const history = await client.conversations
       .history({ channel: dmChannel, limit: 10 })
-      .catch(() => undefined);
+      .catch((error) => {
+        // Swallowing this silently would make a missing-scope or
+        // rate-limited call indistinguishable from "checked and it's
+        // genuinely not there" — the exact failure mode this function
+        // exists to avoid repeating.
+        log.warn("season export delivery check: conversations.history failed", {
+          dmChannel,
+          fileId,
+          attempt,
+          error: String(error),
+        });
+        return undefined;
+      });
     if (history?.messages?.some((m) => m.files?.some((f) => f.id === fileId)))
       return true;
   }
@@ -151,10 +163,27 @@ export const report: Command = {
 
       const fileId = upload.files[0]?.files?.[0]?.id;
       if (!(await confirmDelivered(ctx.client, dmChannel, fileId))) {
+        // Everything we've checked so far — the file object's own
+        // sharing fields — has turned out to be unreliable noise (see
+        // confirmDelivered's comment). Log the raw completeUploadExternal
+        // response so a real failure (an `error`/`warning` field we
+        // haven't been looking at) is visible next time, instead of
+        // inferring from yet another secondhand theory.
         log.error("season export uploaded but not confirmed delivered", {
           userId: ctx.userId,
           dmChannel,
           fileId,
+          uploadResponse: upload.files.map((completion) => ({
+            ok: completion.ok,
+            error: completion.error,
+            files: completion.files?.map((f) => ({
+              id: f.id,
+              channels: f.channels,
+              groups: f.groups,
+              ims: f.ims,
+              shares: f.shares,
+            })),
+          })),
         });
         return {
           text: "The export uploaded to Slack but didn't land in your DM — try again, and tell a coach if it keeps happening.",
