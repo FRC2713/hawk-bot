@@ -5,6 +5,7 @@ import {
   attendancePercent,
   currentSeasonRange,
   formatDateRange,
+  formatSeasonAttendanceTable,
   isoDate,
   toAttendanceCsv,
   type AttendanceCsvRow,
@@ -49,6 +50,33 @@ function parseRange(
   return { start, end };
 }
 
+async function buildTeamRows(
+  client: WebClient,
+  range: { start: Date; end: Date }
+): Promise<AttendanceCsvRow[]> {
+  const byUser = getTeamSeasonOutcomes(
+    range.start.toISOString(),
+    range.end.toISOString()
+  );
+  const rows: AttendanceCsvRow[] = [];
+  for (const [userId, outcomes] of byUser) {
+    const { attending, notAttending, noResponse, hours } = summarize(outcomes);
+    const info = await client.users
+      .info({ user: userId })
+      .catch(() => undefined);
+    const displayName = info?.user?.real_name ?? info?.user?.name ?? userId;
+    rows.push({
+      userId,
+      displayName,
+      eventsAttending: attending,
+      eventsNotAttending: notAttending,
+      eventsNoResponse: noResponse,
+      hoursCredited: hours,
+    });
+  }
+  return rows;
+}
+
 /**
  * `files.uploadV2`'s own response can't be trusted to say whether a file
  * actually got shared — its file object leaves `ims`/`channels`/`shares`
@@ -69,7 +97,19 @@ async function confirmDelivered(
     if (attempt > 0) await new Promise((r) => setTimeout(r, 1000));
     const history = await client.conversations
       .history({ channel: dmChannel, limit: 10 })
-      .catch(() => undefined);
+      .catch((error) => {
+        // Swallowing this silently would make a missing-scope or
+        // rate-limited call indistinguishable from "checked and it's
+        // genuinely not there" — the exact failure mode this function
+        // exists to avoid repeating.
+        log.warn("season export delivery check: conversations.history failed", {
+          dmChannel,
+          fileId,
+          attempt,
+          error: String(error),
+        });
+        return undefined;
+      });
     if (history?.messages?.some((m) => m.files?.some((f) => f.id === fileId)))
       return true;
   }
@@ -78,8 +118,9 @@ async function confirmDelivered(
 
 export const report: Command = {
   name: "report",
-  summary: "Attendance reports — your own hours, or a season export",
-  usage: "report attendance me [start end] | report attendance export",
+  summary: "Attendance reports — your own hours, a season export, or a preview",
+  usage:
+    "report attendance me [start end] | report attendance export | report attendance preview",
   async run(ctx) {
     const [area, verb, ...rest] = ctx.args;
     if (area?.toLowerCase() !== "attendance" || !verb) {
@@ -107,6 +148,30 @@ export const report: Command = {
       };
     }
 
+    if (verb.toLowerCase() === "preview") {
+      if (!(await ctx.isAdmin())) {
+        return {
+          text: "Only Hawk Bot admins can preview the whole team's attendance.",
+        };
+      }
+      // Shows the export's own data as plain reply text — the same
+      // response_url path every other reply in this app already uses
+      // reliably — instead of as a file attachment. Isolates whether a
+      // stuck export is a data problem (this will look wrong too) or a
+      // file-delivery problem (this will look right, `export` won't).
+      const range = currentSeasonRange(new Date());
+      const rows = await buildTeamRows(ctx.client, range);
+      const preview = rows.slice(0, 20);
+      if (preview.length === 0) {
+        return {
+          text: "No season attendance data yet — the export would just be a header row.",
+        };
+      }
+      return {
+        text: `*Season attendance preview — first ${preview.length} of ${rows.length}, ${formatDateRange(range.start, range.end)}*\n${formatSeasonAttendanceTable(preview)}`,
+      };
+    }
+
     if (verb.toLowerCase() === "export") {
       if (!(await ctx.isAdmin())) {
         return {
@@ -114,28 +179,7 @@ export const report: Command = {
         };
       }
       const range = currentSeasonRange(new Date());
-      const byUser = getTeamSeasonOutcomes(
-        range.start.toISOString(),
-        range.end.toISOString()
-      );
-
-      const rows: AttendanceCsvRow[] = [];
-      for (const [userId, outcomes] of byUser) {
-        const { attending, notAttending, noResponse, hours } =
-          summarize(outcomes);
-        const info = await ctx.client.users
-          .info({ user: userId })
-          .catch(() => undefined);
-        const displayName = info?.user?.real_name ?? info?.user?.name ?? userId;
-        rows.push({
-          userId,
-          displayName,
-          eventsAttending: attending,
-          eventsNotAttending: notAttending,
-          eventsNoResponse: noResponse,
-          hoursCredited: hours,
-        });
-      }
+      const rows = await buildTeamRows(ctx.client, range);
 
       const dmChannel = await openDirectMessage(ctx.client, ctx.userId);
       if (!dmChannel) {
@@ -151,10 +195,27 @@ export const report: Command = {
 
       const fileId = upload.files[0]?.files?.[0]?.id;
       if (!(await confirmDelivered(ctx.client, dmChannel, fileId))) {
+        // Everything we've checked so far — the file object's own
+        // sharing fields — has turned out to be unreliable noise (see
+        // confirmDelivered's comment). Log the raw completeUploadExternal
+        // response so a real failure (an `error`/`warning` field we
+        // haven't been looking at) is visible next time, instead of
+        // inferring from yet another secondhand theory.
         log.error("season export uploaded but not confirmed delivered", {
           userId: ctx.userId,
           dmChannel,
           fileId,
+          uploadResponse: upload.files.map((completion) => ({
+            ok: completion.ok,
+            error: completion.error,
+            files: completion.files?.map((f) => ({
+              id: f.id,
+              channels: f.channels,
+              groups: f.groups,
+              ims: f.ims,
+              shares: f.shares,
+            })),
+          })),
         });
         return {
           text: "The export uploaded to Slack but didn't land in your DM — try again, and tell a coach if it keeps happening.",

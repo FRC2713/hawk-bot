@@ -8,6 +8,7 @@ import {
   formatAttendanceReportSummary,
   formatAttendanceReportTable,
   formatDateRange,
+  formatSeasonAttendanceTable,
   hoursCredited,
   isClockReaction,
   isoDate,
@@ -167,6 +168,33 @@ test("CSV export escapes fields that contain commas or quotes", () => {
     "user_id,display_name,attending,not_attending,no_response,attendance_percent,hours_credited"
   );
   assert.match(lines[1] ?? "", /^U1,"Ada, Lovelace",4,1,0,80,10$/);
+});
+
+test("the season attendance table is the same aligned, code-block style as the report table", () => {
+  const table = formatSeasonAttendanceTable([
+    {
+      userId: "U1",
+      displayName: "Ada",
+      eventsAttending: 4,
+      eventsNotAttending: 1,
+      eventsNoResponse: 0,
+      hoursCredited: 10,
+    },
+  ]);
+  assert.match(table, /^```\n/);
+  assert.match(table, /\n```$/);
+  assert.match(
+    table,
+    /Name\s+Attending\s+Not Attending\s+No Response\s+Attendance\s+Hours/
+  );
+  assert.match(table, /Ada\s+4\s+1\s+0\s+80%\s+10/);
+});
+
+test("an empty season attendance table says so rather than showing a bare header", () => {
+  assert.equal(
+    formatSeasonAttendanceTable([]),
+    "```\n(no attendance data yet)\n```"
+  );
 });
 
 test("default All-Day hours falls back to the starting default until set", () => {
