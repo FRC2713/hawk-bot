@@ -197,15 +197,14 @@ export const report: Command = {
       if (!(await confirmDelivered(ctx.client, dmChannel, fileId))) {
         // Everything we've checked so far — the file object's own
         // sharing fields — has turned out to be unreliable noise (see
-        // confirmDelivered's comment). Log the raw completeUploadExternal
-        // response so a real failure (an `error`/`warning` field we
-        // haven't been looking at) is visible next time, instead of
-        // inferring from yet another secondhand theory.
-        log.error("season export uploaded but not confirmed delivered", {
-          userId: ctx.userId,
-          dmChannel,
-          fileId,
-          uploadResponse: upload.files.map((completion) => ({
+        // confirmDelivered's comment). Capture the raw completeUploadExternal
+        // response so a real failure (an `error`/`warning` field we haven't
+        // been looking at) is finally visible, instead of another
+        // secondhand theory. Put it in the reply itself, not only the log —
+        // the admin running this command may not have log access, and
+        // they're the one who can actually see it.
+        const diagnostics = JSON.stringify(
+          upload.files.map((completion) => ({
             ok: completion.ok,
             error: completion.error,
             files: completion.files?.map((f) => ({
@@ -215,10 +214,22 @@ export const report: Command = {
               ims: f.ims,
               shares: f.shares,
             })),
-          })),
+          }))
+        );
+        log.error("season export uploaded but not confirmed delivered", {
+          userId: ctx.userId,
+          dmChannel,
+          fileId,
+          uploadResponse: diagnostics,
         });
         return {
-          text: "The export uploaded to Slack but didn't land in your DM — try again, and tell a coach if it keeps happening.",
+          text: [
+            "The export uploaded to Slack but didn't land in your DM — try again, and tell a coach if it keeps happening.",
+            "Diagnostic detail (safe to share for troubleshooting):",
+            "```",
+            diagnostics,
+            "```",
+          ].join("\n"),
         };
       }
 
