@@ -49,6 +49,33 @@ function parseRange(
   return { start, end };
 }
 
+async function buildTeamRows(
+  client: WebClient,
+  range: { start: Date; end: Date }
+): Promise<AttendanceCsvRow[]> {
+  const byUser = getTeamSeasonOutcomes(
+    range.start.toISOString(),
+    range.end.toISOString()
+  );
+  const rows: AttendanceCsvRow[] = [];
+  for (const [userId, outcomes] of byUser) {
+    const { attending, notAttending, noResponse, hours } = summarize(outcomes);
+    const info = await client.users
+      .info({ user: userId })
+      .catch(() => undefined);
+    const displayName = info?.user?.real_name ?? info?.user?.name ?? userId;
+    rows.push({
+      userId,
+      displayName,
+      eventsAttending: attending,
+      eventsNotAttending: notAttending,
+      eventsNoResponse: noResponse,
+      hoursCredited: hours,
+    });
+  }
+  return rows;
+}
+
 /**
  * `files.uploadV2`'s own response can't be trusted to say whether a file
  * actually got shared — its file object leaves `ims`/`channels`/`shares`
@@ -90,8 +117,9 @@ async function confirmDelivered(
 
 export const report: Command = {
   name: "report",
-  summary: "Attendance reports — your own hours, or a season export",
-  usage: "report attendance me [start end] | report attendance export",
+  summary: "Attendance reports — your own hours, a season export, or a preview",
+  usage:
+    "report attendance me [start end] | report attendance export | report attendance preview",
   async run(ctx) {
     const [area, verb, ...rest] = ctx.args;
     if (area?.toLowerCase() !== "attendance" || !verb) {
@@ -119,6 +147,30 @@ export const report: Command = {
       };
     }
 
+    if (verb.toLowerCase() === "preview") {
+      if (!(await ctx.isAdmin())) {
+        return {
+          text: "Only Hawk Bot admins can preview the whole team's attendance.",
+        };
+      }
+      // Shows the export's own data as plain reply text — the same
+      // response_url path every other reply in this app already uses
+      // reliably — instead of as a file attachment. Isolates whether a
+      // stuck export is a data problem (this will look wrong too) or a
+      // file-delivery problem (this will look right, `export` won't).
+      const range = currentSeasonRange(new Date());
+      const rows = await buildTeamRows(ctx.client, range);
+      const preview = rows.slice(0, 20);
+      if (preview.length === 0) {
+        return {
+          text: "No season attendance data yet — the export would just be a header row.",
+        };
+      }
+      return {
+        text: `*Season attendance preview — first ${preview.length} of ${rows.length}, ${formatDateRange(range.start, range.end)}*\n\`\`\`\n${toAttendanceCsv(preview)}\`\`\``,
+      };
+    }
+
     if (verb.toLowerCase() === "export") {
       if (!(await ctx.isAdmin())) {
         return {
@@ -126,28 +178,7 @@ export const report: Command = {
         };
       }
       const range = currentSeasonRange(new Date());
-      const byUser = getTeamSeasonOutcomes(
-        range.start.toISOString(),
-        range.end.toISOString()
-      );
-
-      const rows: AttendanceCsvRow[] = [];
-      for (const [userId, outcomes] of byUser) {
-        const { attending, notAttending, noResponse, hours } =
-          summarize(outcomes);
-        const info = await ctx.client.users
-          .info({ user: userId })
-          .catch(() => undefined);
-        const displayName = info?.user?.real_name ?? info?.user?.name ?? userId;
-        rows.push({
-          userId,
-          displayName,
-          eventsAttending: attending,
-          eventsNotAttending: notAttending,
-          eventsNoResponse: noResponse,
-          hoursCredited: hours,
-        });
-      }
+      const rows = await buildTeamRows(ctx.client, range);
 
       const dmChannel = await openDirectMessage(ctx.client, ctx.userId);
       if (!dmChannel) {
