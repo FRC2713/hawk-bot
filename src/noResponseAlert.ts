@@ -1,10 +1,11 @@
 import type { WebClient } from "@slack/web-api";
 import { SLASH_COMMAND } from "./brand.js";
-import { resolveTeamRole } from "./domain/authorization.js";
 import {
   DEFAULT_NO_RESPONSE_ALERT_TIMING,
-  formatNoResponseAlertMessage,
+  formatNoResponseAlertDetail,
+  formatNoResponseAlertSummary,
   isNoResponseStreak,
+  resolveNoResponseAlertRoles,
   resolveNoResponseAlertThreshold,
   type FlaggedPerson,
   type RecentMeetingOutcome,
@@ -59,13 +60,14 @@ async function notifyTeamRoleMisconfiguration(
  * The No Response Alert Report: if due, flags anyone currently on the
  * Roster (the announcements channel's live membership, not a historical
  * snapshot — see CONTEXT.md, Roster) whose most recent `threshold` Team
- * Meeting outcomes were all No Response, and posts one message naming them
- * and what they missed. Silent when nobody qualifies — no "all clear"
- * message, see CONTEXT.md — but a row is still recorded either way, so the
- * due-check advances instead of re-evaluating the whole Roster on every
- * scheduler tick for the rest of a silent week. Turned off by leaving
- * `no_response_alert_channel` unset, same convention as the Mentor/Teacher
- * Weekly Summary.
+ * Meeting outcomes were all No Response, and posts one top-level message
+ * with a Students list and a Mentors list threaded underneath it —
+ * separately, so someone in both groups is named in both. Silent when
+ * nobody qualifies — no "all clear" message, see CONTEXT.md — but a row is
+ * still recorded either way, so the due-check advances instead of
+ * re-evaluating the whole Roster on every scheduler tick for the rest of a
+ * silent week. Turned off by leaving `no_response_alert_channel` unset,
+ * same convention as the Mentor/Teacher Weekly Summary.
  */
 export async function postDueNoResponseAlert(
   client: WebClient,
@@ -115,14 +117,15 @@ export async function postDueNoResponseAlert(
     getSetting("no_response_alert_threshold")
   );
 
-  const flagged: FlaggedPerson[] = [];
+  const studentFlagged: FlaggedPerson[] = [];
+  const mentorFlagged: FlaggedPerson[] = [];
   for (const userId of roster) {
-    const role = resolveTeamRole({
+    const roles = resolveNoResponseAlertRoles({
       userId,
       studentGroupMemberIds: studentMemberIds,
       mentorGroupMemberIds: mentorMemberIds,
     });
-    if (role === "skipped") continue;
+    if (roles.length === 0) continue;
 
     const recent: RecentMeetingOutcome[] = getRecentOutcomesForUser(
       userId,
@@ -142,7 +145,7 @@ export async function postDueNoResponseAlert(
       return undefined;
     });
     const displayName = info?.user?.real_name ?? info?.user?.name ?? userId;
-    flagged.push({
+    const person: FlaggedPerson = {
       displayName,
       // recent is newest-first (see getRecentOutcomesForUser); the message
       // reads oldest-to-newest, like a timeline.
@@ -150,25 +153,52 @@ export async function postDueNoResponseAlert(
         title: r.title,
         startsAt: r.startsAt,
       })),
-    });
+    };
+    // A person in both groups gets the same block pushed onto both lists —
+    // see resolveNoResponseAlertRoles.
+    if (roles.includes("student")) studentFlagged.push(person);
+    if (roles.includes("mentor")) mentorFlagged.push(person);
   }
 
-  if (flagged.length === 0) {
+  if (studentFlagged.length === 0 && mentorFlagged.length === 0) {
     insertNoResponseAlert({ channel: channelId, messageTs: null });
     log.info("no response alert: nobody flagged this week");
     return;
   }
 
-  const text = formatNoResponseAlertMessage({ threshold, flagged });
-  const posted = await client.chat.postMessage({ channel: channelId, text });
+  const posted = await client.chat.postMessage({
+    channel: channelId,
+    text: formatNoResponseAlertSummary({ threshold }),
+  });
   if (!posted.channel || !posted.ts) {
     log.error("no response alert post did not return a channel/ts");
     return;
+  }
+  if (studentFlagged.length > 0) {
+    await client.chat.postMessage({
+      channel: posted.channel,
+      thread_ts: posted.ts,
+      text: formatNoResponseAlertDetail({
+        role: "student",
+        flagged: studentFlagged,
+      }),
+    });
+  }
+  if (mentorFlagged.length > 0) {
+    await client.chat.postMessage({
+      channel: posted.channel,
+      thread_ts: posted.ts,
+      text: formatNoResponseAlertDetail({
+        role: "mentor",
+        flagged: mentorFlagged,
+      }),
+    });
   }
   insertNoResponseAlert({ channel: posted.channel, messageTs: posted.ts });
   log.info("no response alert posted", {
     channel: posted.channel,
     ts: posted.ts,
-    flaggedCount: flagged.length,
+    studentFlaggedCount: studentFlagged.length,
+    mentorFlaggedCount: mentorFlagged.length,
   });
 }
