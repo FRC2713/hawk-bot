@@ -3,8 +3,10 @@ import { test } from "node:test";
 import {
   DEFAULT_NO_RESPONSE_ALERT_THRESHOLD,
   DEFAULT_NO_RESPONSE_ALERT_TIMING,
-  formatNoResponseAlertMessage,
+  formatNoResponseAlertDetail,
+  formatNoResponseAlertSummary,
   isNoResponseStreak,
+  resolveNoResponseAlertRoles,
   resolveNoResponseAlertThreshold,
   type RecentMeetingOutcome,
 } from "../src/domain/noResponseAlert.js";
@@ -86,9 +88,74 @@ test("a set threshold setting parses to a number", () => {
   assert.equal(resolveNoResponseAlertThreshold("5"), 5);
 });
 
-test("the message names one flagged person and every meeting they missed", () => {
-  const text = formatNoResponseAlertMessage({
-    threshold: 3,
+test("the summary names the threshold and nothing about who's flagged", () => {
+  const text = formatNoResponseAlertSummary({ threshold: 3 });
+  assert.match(text, /Missed 3 meetings with no response/);
+});
+
+test("someone solely in the mentor group resolves to just mentor", () => {
+  assert.deepEqual(
+    resolveNoResponseAlertRoles({
+      userId: "U1",
+      studentGroupMemberIds: new Set(),
+      mentorGroupMemberIds: new Set(["U1"]),
+    }),
+    ["mentor"]
+  );
+});
+
+test("someone solely in the student group resolves to just student", () => {
+  assert.deepEqual(
+    resolveNoResponseAlertRoles({
+      userId: "U1",
+      studentGroupMemberIds: new Set(["U1"]),
+      mentorGroupMemberIds: new Set(),
+    }),
+    ["student"]
+  );
+});
+
+test("someone in both groups resolves to both roles, not a tie-break", () => {
+  assert.deepEqual(
+    resolveNoResponseAlertRoles({
+      userId: "U1",
+      studentGroupMemberIds: new Set(["U1"]),
+      mentorGroupMemberIds: new Set(["U1"]),
+    }),
+    ["student", "mentor"]
+  );
+});
+
+test("someone in neither group resolves to no roles", () => {
+  assert.deepEqual(
+    resolveNoResponseAlertRoles({
+      userId: "U1",
+      studentGroupMemberIds: new Set(["U2"]),
+      mentorGroupMemberIds: new Set(["U3"]),
+    }),
+    []
+  );
+});
+
+test("both groups empty still resolves to no roles, not a default one", () => {
+  assert.deepEqual(
+    resolveNoResponseAlertRoles({
+      userId: "U1",
+      studentGroupMemberIds: new Set(),
+      mentorGroupMemberIds: new Set(),
+    }),
+    []
+  );
+});
+
+test("the detail is headed by its role's label", () => {
+  const text = formatNoResponseAlertDetail({ role: "mentor", flagged: [] });
+  assert.match(text, /^\*Mentors\*/);
+});
+
+test("the detail names one flagged person and every meeting they missed", () => {
+  const text = formatNoResponseAlertDetail({
+    role: "student",
     flagged: [
       {
         displayName: "Jordan Smith",
@@ -103,16 +170,15 @@ test("the message names one flagged person and every meeting they missed", () =>
       },
     ],
   });
-  assert.match(text, /3 meetings in a row/);
   assert.match(text, /Jordan Smith/);
   assert.match(text, /Team Practice/);
   assert.match(text, /Scrimmage Prep/);
   assert.equal(text.match(/Team Practice/g)?.length, 2);
 });
 
-test("the message includes a block for every flagged person", () => {
-  const text = formatNoResponseAlertMessage({
-    threshold: 3,
+test("differing meeting lists fall back to a block per flagged person", () => {
+  const text = formatNoResponseAlertDetail({
+    role: "student",
     flagged: [
       {
         displayName: "Jordan Smith",
@@ -131,4 +197,74 @@ test("the message includes a block for every flagged person", () => {
   assert.match(text, /Jordan Smith/);
   assert.match(text, /Alex Chen/);
   assert.match(text, /Build Session/);
+  // Per-person mode bolds each name as its own block header.
+  assert.match(text, /\*Jordan Smith\*/);
+  assert.match(text, /\*Alex Chen\*/);
+});
+
+test("identical meeting lists are printed once, with names just bulleted underneath", () => {
+  const sharedMeetings = [
+    { title: "Team Practice", startsAt: new Date(Date.UTC(2026, 7, 5)) },
+    { title: "Scrimmage Prep", startsAt: new Date(Date.UTC(2026, 7, 7)) },
+    { title: "Team Practice", startsAt: new Date(Date.UTC(2026, 7, 12)) },
+  ];
+  const text = formatNoResponseAlertDetail({
+    role: "mentor",
+    flagged: [
+      { displayName: "Jordan Smith", missedMeetings: sharedMeetings },
+      { displayName: "Alex Chen", missedMeetings: sharedMeetings },
+    ],
+  });
+  assert.match(text, /• Jordan Smith/);
+  assert.match(text, /• Alex Chen/);
+  // Not bolded as a per-person block header, and the meeting lines appear
+  // exactly once rather than once per person.
+  assert.doesNotMatch(text, /\*Jordan Smith\*/);
+  assert.equal(text.match(/Team Practice/g)?.length, 2);
+  assert.equal(text.match(/Scrimmage Prep/g)?.length, 1);
+});
+
+test("a differing subset among otherwise-matching people still falls back to per-person blocks", () => {
+  const firstMeeting = {
+    title: "Team Practice",
+    startsAt: new Date(Date.UTC(2026, 7, 5)),
+  };
+  const sharedMeetings = [
+    firstMeeting,
+    { title: "Team Practice", startsAt: new Date(Date.UTC(2026, 7, 12)) },
+  ];
+  const text = formatNoResponseAlertDetail({
+    role: "student",
+    flagged: [
+      { displayName: "Jordan Smith", missedMeetings: sharedMeetings },
+      { displayName: "Alex Chen", missedMeetings: sharedMeetings },
+      {
+        displayName: "Sam Lee",
+        // Same first meeting, different second one — recently rejoined.
+        missedMeetings: [
+          firstMeeting,
+          { title: "Build Session", startsAt: new Date(Date.UTC(2026, 7, 12)) },
+        ],
+      },
+    ],
+  });
+  assert.match(text, /\*Jordan Smith\*/);
+  assert.match(text, /\*Sam Lee\*/);
+  assert.match(text, /Build Session/);
+});
+
+test("a lone flagged person always gets their own block, never the bulleted-list shorthand", () => {
+  const text = formatNoResponseAlertDetail({
+    role: "student",
+    flagged: [
+      {
+        displayName: "Jordan Smith",
+        missedMeetings: [
+          { title: "Team Practice", startsAt: new Date(Date.UTC(2026, 7, 5)) },
+        ],
+      },
+    ],
+  });
+  assert.match(text, /\*Jordan Smith\*/);
+  assert.doesNotMatch(text, /• Jordan Smith/);
 });
