@@ -30,11 +30,16 @@ difference is the thing to hold onto:
 | Slack app   | its own                               | **a separate one**               |
 | User tokens | yes, per adult — the whole point      | **none, ever**                   |
 | Reads DMs   | yes, that is the product              | no                               |
-| Stores      | consent records, minors' message text | an install token, a few settings |
+| Stores      | consent records, minors' message text | an install token, a few settings, wellbeing survey responses (see below) |
 
 Both are deployed by [hawk_suite](https://github.com/FRC2713/hawk_suite), which
 routes `mod.<domain>` and `bot.<domain>` to them. Deployment questions belong
 in that repo; this one only publishes an image.
+
+The student wellbeing/connection survey feature stores freeform student text
+directly in hawk-bot — a deliberate, named exception to the boundary above,
+not an oversight. See ADR-0012; that decision is pending review with team
+leadership and may change.
 
 ## Architecture
 

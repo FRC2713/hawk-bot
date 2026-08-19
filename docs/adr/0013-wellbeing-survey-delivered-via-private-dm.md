@@ -1,0 +1,7 @@
+# Wellbeing survey flows deliver via private DM, gated on the Attending reaction
+
+The original sketch for the wellbeing survey put Quick Pulse "in the same channel/moment as the attendance check-in" — implying a public companion post next to the Event Check-in Post, the way attendance itself works. We rejected that: mood and needs-help signals are private by nature, so both Quick Pulse and Deep Check-in are DMs to the individual student, never a channel post.
+
+Quick Pulse goes further: it's gated on that student's own 👍 (Attending) reaction to the Event Check-in Post — a student who hasn't marked Attending never receives it at all. The DM releases at whichever is later: the reaction itself, or the same trigger-time floor the Event Check-in Post timing already uses (20 minutes before an Hourly Event ends, 4pm the day of an All-Day Event). A 👍 that lands before that floor waits until it; a 👍 that lands at or after it (including well after the meeting) triggers the DM immediately — so a late reaction never produces a stale, delayed pulse.
+
+This ties Quick Pulse's delivery to the same live reaction-event stream attendance already listens to (`slack/attendanceEvents.ts`), a new dependency between two features that were previously independent. Deep Check-in, by contrast, is **not** gated on Attending — it sends to the full student roster regardless of reaction status, since its questions are about the week generally rather than that specific meeting.

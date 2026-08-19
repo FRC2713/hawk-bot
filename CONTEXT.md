@@ -91,3 +91,32 @@ The Informational Calendar's digest, if enabled: a threaded reply under that pos
 
 **Mentor/Teacher Weekly Summary**:
 The Mentor/Teacher Calendar's digest, if enabled: its own post, on its own admin-configurable day/time, to an admin-only channel (not the team announcements channel) — separate audience, separate schedule from the Weekly Summary Post. Covers 14 days starting the day after that post, rather than 7, for more lead time on travel and unavailability conflicts — the same rolling-window model as the Weekly Summary Post, just twice as wide (see ADR-0011). Deleted and reposted fresh each cycle like the Weekly Summary Post, but with no Weekly Summary Change Reflection — see ADR-0007. Safe for an adult-only channel despite the "no user scopes, shared with minors" rule in `CLAUDE.md`: a Mentor/Teacher Event only ever reveals that someone is unavailable, never why or where.
+
+**Quick Pulse**:
+A private DM sent to a student after they mark Attending (👍) on an Event Check-in Post, asking how they're feeling about robotics today. One message, two independent signals: a 1-5 mood reaction (😞😕😐🙂😄) and an optional Needs Help reaction, plus an invited (never required) free-text note. Never sent to a student who hasn't marked Attending. Students only — see Wellbeing Survey Audience. Released at whichever is later: the 👍 reaction itself, or the same trigger-time floor the Event Check-in Post timing uses (20 minutes before an Hourly Event ends, 4pm the day of an All-Day Event) — so a 👍 before that floor waits for it, and a 👍 at or after it (even much later) triggers the DM immediately. See ADR-0013.
+_Avoid_: "mood pulse", "check-in survey" (ambiguous with Event Check-in Post)
+
+**Quick Pulse Answer Window**:
+4 hours from the moment a given student's Quick Pulse DM is sent — each student's own send time starts their own window, not a shared clock. Reactions during the window overwrite each other (last reaction wins); whatever's on the message when the window closes is what's recorded. No resync-and-freeze lifecycle like Reaction Cutoff — Quick Pulse doesn't gate hours or Roster membership, so it doesn't need one. Deep Check-in uses the same window.
+
+**Deep Check-in**:
+Replaces Quick Pulse once every X occurrences (default 4, a single counter global across all students, not tracked per student — see ADR-0014) — sent to the full student Roster regardless of Attending status, unlike Quick Pulse. Opens with the exact same mood + Needs Help message as Quick Pulse, followed by a second DM bundling two more questions — a "figuring things out ↔ I feel lost" 1-5 scale, and the rotating Deep Check-in Theme question — as two independently-tracked `radio_buttons` elements in one message, answerable in either order. See ADR-0015 for why this isn't a gated back-and-forth conversation, and why `radio_buttons` rather than plain buttons.
+
+**Deep Check-in Theme**:
+The third Deep Check-in question's subject, cycling Connected to the team → Excited/inspired by the work → Contributed something real → repeats — the same order for everyone, advancing once per Deep Check-in occurrence globally, not per student.
+
+**Needs Help**:
+The ⁉️ reaction available on every Quick Pulse and Deep Check-in opening message. The reaction alone is enough to raise a flag — a follow-up free-text note, if sent before the Quick Pulse Answer Window closes, appends to the same flag rather than gating whether it fires. All flags raised in the same window are batched into one summary posted to the Wellbeing Reporting Channel at window close, never one post per flag.
+_Avoid_: "needs_help" (the column name, not the concept)
+
+**Wellbeing Missing Response**:
+For the Baseline-Drop Trigger only: a student who was sent a Quick Pulse or Deep Check-in but didn't answer by their Quick Pulse Answer Window's close. Deliberately excludes a student who simply didn't attend and so was never sent a Quick Pulse at all — that's already the existing attendance No Response Alert's signal; conflating the two would blur two different things into one counter.
+
+**Baseline-Drop Trigger**:
+Flags a student whose two most recent mood scores (Quick Pulse or Deep Check-in — one continuous sequence, since Deep Check-in's first question deliberately reuses the same 1-5 scale) are both at least 1.5 points below their own trailing average, computed over their last 5 responses — or who has racked up 3 Wellbeing Missing Responses.
+
+**Wellbeing Survey Audience**:
+Quick Pulse and Deep Check-in go only to Roster members classified as students (the existing `student_usergroup` Team Role, see `domain/authorization.ts::resolveTeamRole`) — mentors and unclassified people are skipped entirely. A distinct scoping rule from attendance, which surveys the whole Roster.
+
+**Wellbeing Reporting Channel**:
+The `student_reporting_channel` setting (renamed from `no_response_alert_channel`), shared by the existing attendance No Response Alert and the wellbeing feature's weekly digest plus same-window Needs Help summary — one setting drives both; reconfiguring it moves both features' postings together. Defaults to `#admin-ra`. Channel membership is the entire trust boundary for this data: free text rides directly in the digest, with no separate redaction or usergroup, on the basis that membership is already a small, deliberately trusted set of adults. Storing that free text in hawk-bot at all is a deliberate exception to this app's usual storage boundary — see ADR-0012, currently pending review with team leadership (tracking issue #31).
