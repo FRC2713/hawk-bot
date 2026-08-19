@@ -308,25 +308,61 @@ export type AttendanceReportRow = {
 };
 
 /**
- * The Event Attendance Report's top-level channel message — kept to a
- * couple of lines. States hours per attendee, not a summed total, since
- * every Attending person on one Event is credited the same hours. Past
- * tense throughout — this posts after the Reaction Cutoff, once responses
- * are locked, so it's reporting what happened, not what's expected to.
+ * Human-readable "when" for an event: full date, plus a clock-time range
+ * for anything that isn't an all-day meeting. Shared by the Check-in Post
+ * (`slack/checkin.ts`) and the Event Attendance Report so the same event
+ * reads the same way in both places.
+ */
+export function formatEventWhen(
+  startsAt: Date,
+  endsAt: Date,
+  meetingType: MeetingType
+): string {
+  const dateStr = startsAt.toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+  if (meetingType === "all_day") return dateStr;
+  const timeFmt: Intl.DateTimeFormatOptions = {
+    hour: "numeric",
+    minute: "2-digit",
+  };
+  return `${dateStr}, ${startsAt.toLocaleTimeString("en-US", timeFmt)}–${endsAt.toLocaleTimeString("en-US", timeFmt)}`;
+}
+
+/**
+ * The Event Attendance Report's top-level channel message. Labeled and
+ * dated up front so it reads unambiguously as the final, locked report for
+ * this one meeting rather than a status update. `hoursPerAttendee` is the
+ * credited-hours figure from `hoursCredited()`, not a raw clock duration —
+ * they only coincide for `hourly` meetings, since `all_day` is a fixed
+ * setting. Past tense throughout — this posts after the Reaction Cutoff,
+ * once responses are locked, so it's reporting what happened, not what's
+ * expected to.
  */
 export function formatAttendanceReportSummary(args: {
   eventTitle: string;
   rows: readonly AttendanceReportRow[];
   hoursPerAttendee: number;
+  startsAt: Date;
+  endsAt: Date;
+  meetingType: MeetingType;
 }): string {
   const attending = args.rows.filter((r) => r.status === "attending").length;
   const notAttending = args.rows.filter(
     (r) => r.status === "not_attending"
   ).length;
   const noResponse = args.rows.filter((r) => r.status === "no_response").length;
+  const when = formatEventWhen(args.startsAt, args.endsAt, args.meetingType);
   return [
+    ":calendar: *Meeting Attendance Report*",
     `*${args.eventTitle}*`,
-    `${attending} attended (${args.hoursPerAttendee} hrs each) · ${notAttending} didn't attend · ${noResponse} no response`,
+    `${when} (${args.hoursPerAttendee}h credited)`,
+    "",
+    `• ${attending} attended :thumbsup:`,
+    `• ${notAttending} didn't attend :x:`,
+    `• ${noResponse} no response :no_entry_sign:`,
   ].join("\n");
 }
 

@@ -342,6 +342,9 @@ async function postEventAttendanceReport(
       eventTitle: event.title,
       rows,
       hoursPerAttendee,
+      startsAt: new Date(event.starts_at),
+      endsAt: new Date(event.ends_at),
+      meetingType: event.meeting_type as MeetingType,
     }),
   });
   if (posted.channel && posted.ts) {

@@ -262,7 +262,7 @@ test("a stale recorded row for someone who removed their reaction doesn't fail v
   assert.deepEqual(result, { ok: true });
 });
 
-test("the report summary states counts and hours-per-attendee, not a summed total", () => {
+test("the report summary states counts and credited hours, not a summed total, and reads as a final report", () => {
   const rows: AttendanceReportRow[] = [
     { displayName: "Ada", status: "attending", reactions: ["+1"], note: null },
     {
@@ -288,10 +288,47 @@ test("the report summary states counts and hours-per-attendee, not a summed tota
     eventTitle: "Team Meeting",
     rows,
     hoursPerAttendee: 2,
+    startsAt: new Date("2026-08-17T18:30:00Z"),
+    endsAt: new Date("2026-08-17T20:30:00Z"),
+    meetingType: "hourly",
   });
   assert.equal(
     summary,
-    "*Team Meeting*\n2 attended (2 hrs each) · 1 didn't attend · 1 no response"
+    [
+      ":calendar: *Meeting Attendance Report*",
+      "*Team Meeting*",
+      "Monday, August 17, 6:30 PM–8:30 PM (2h credited)",
+      "",
+      "• 2 attended :thumbsup:",
+      "• 1 didn't attend :x:",
+      "• 1 no response :no_entry_sign:",
+    ].join("\n")
+  );
+});
+
+test("an all-day meeting's report summary shows just the date, with its fixed credited hours", () => {
+  const rows: AttendanceReportRow[] = [
+    { displayName: "Ada", status: "attending", reactions: ["+1"], note: null },
+  ];
+  const summary = formatAttendanceReportSummary({
+    eventTitle: "Regionals",
+    rows,
+    hoursPerAttendee: 8,
+    startsAt: new Date("2026-08-17T00:00:00Z"),
+    endsAt: new Date("2026-08-18T00:00:00Z"),
+    meetingType: "all_day",
+  });
+  assert.equal(
+    summary,
+    [
+      ":calendar: *Meeting Attendance Report*",
+      "*Regionals*",
+      "Monday, August 17 (8h credited)",
+      "",
+      "• 1 attended :thumbsup:",
+      "• 0 didn't attend :x:",
+      "• 0 no response :no_entry_sign:",
+    ].join("\n")
   );
 });
 
