@@ -16,8 +16,13 @@ import {
   checkinPostTime,
   diffEvent,
   mapCalendarEvent,
+  MULTI_DAY_MAX_DAYS,
+  multiDayChildEvents,
   reactionCutoff,
+  reconcileMultiDayChildren,
   resolveCheckinOffsets,
+  resolveMultiDayDaysBefore,
+  withoutDaySuffix,
   type CheckinPostOffsets,
   type MappedEvent,
 } from "./domain/calendar.js";
@@ -32,6 +37,7 @@ import {
   insertEvent,
   listEventsDueForCheckin,
   listEventsDueForCutoff,
+  listMultiDayChildren,
   markCheckinPosted,
   markEventFinalized,
   markEventRemoved,
@@ -87,6 +93,10 @@ function defaultAllDayHours(): number {
   return resolveAllDayHours(getSetting("default_all_day_hours"));
 }
 
+function multiDayDaysBefore(): number {
+  return resolveMultiDayDaysBefore(getSetting("checkin_offset_multiday_days"));
+}
+
 function toMappedEvent(row: EventRow): MappedEvent {
   return {
     calendarEventId: row.calendar_event_id ?? "",
@@ -99,6 +109,213 @@ function toMappedEvent(row: EventRow): MappedEvent {
     cancelled: false,
     calendarLink: row.calendar_link,
   };
+}
+
+/**
+ * A Multi-Day Child's MappedEvent, for reuse with `diffEvent` — same shape
+ * `toMappedEvent` produces for a stored row, but built from a freshly
+ * generated MultiDayChildSpec plus the parent's current
+ * description/location/link (a Child has no calendar entry of its own to
+ * read those from; it inherits them unchanged from its Multi-Day Event
+ * parent every sync).
+ */
+function toChildMappedEvent(
+  spec: {
+    calendarEventId: string;
+    title: string;
+    startsAt: Date;
+    endsAt: Date;
+  },
+  parentMapped: MappedEvent
+): MappedEvent {
+  return {
+    calendarEventId: spec.calendarEventId,
+    title: spec.title,
+    description: parentMapped.description,
+    location: parentMapped.location,
+    meetingType: "all_day",
+    startsAt: spec.startsAt,
+    endsAt: spec.endsAt,
+    cancelled: false,
+    calendarLink: parentMapped.calendarLink,
+  };
+}
+
+/**
+ * DMs every HawkBot Admin that a Multi-Day Event was too long to
+ * auto-generate Children for — see domain/calendar.ts, MULTI_DAY_MAX_DAYS.
+ * Mirrors notifyVerificationFailure's DM-every-admin shape.
+ */
+async function notifyMultiDayOverCap(
+  client: WebClient,
+  parentMapped: MappedEvent,
+  dayCount: number
+): Promise<void> {
+  const text = [
+    `⚠️ *${parentMapped.title}* spans ${dayCount} days, over the ${MULTI_DAY_MAX_DAYS}-day limit for automatic Multi-Day Check-in Posts.`,
+    "No Check-in Posts were generated for it — this one needs to be handled manually.",
+  ].join("\n");
+
+  for (const userId of await listHawkBotAdmins(client)) {
+    const dmChannel = await openDirectMessage(client, userId);
+    if (!dmChannel) continue;
+    await client.chat.postMessage({ channel: dmChannel, text }).catch((err) =>
+      log.error("could not DM multi-day over-cap notice", {
+        userId,
+        calendarEventId: parentMapped.calendarEventId,
+        error: String(err),
+      })
+    );
+  }
+}
+
+/**
+ * `markEventRemoved` plus the "announce it, but only if it was already
+ * live" step every Removed path needs — the pre-existing single-Event
+ * removed branch and both new Multi-Day Child removal call sites all do
+ * exactly this, so it lives once here instead of three times. Refuses to
+ * touch a row that's already removed or already finalized: a finalized
+ * Event's recorded attendance is never retroactively altered by sync,
+ * Multi-Day Children included (see `syncOneCalendar`'s own
+ * `existing.finalized_at || existing.removed_at` guard).
+ */
+async function removeEventAndAnnounce(
+  client: WebClient,
+  row: EventRow
+): Promise<void> {
+  if (row.removed_at || row.finalized_at) return;
+  markEventRemoved(row.id);
+  if (row.checkin_posted_at) {
+    await announceEventRemoved(client, row);
+  }
+}
+
+/**
+ * Marks every still-live, not-yet-finalized Multi-Day Child of a cancelled
+ * Multi-Day Event removed, announcing the cancellation on any that already
+ * had a live Check-in Post — the same single-Event Removed handling every
+ * other Event gets, just run once per Child. See CONTEXT.md, Multi-Day
+ * Child Event.
+ */
+async function removeAllMultiDayChildren(
+  client: WebClient,
+  parentId: number
+): Promise<void> {
+  for (const child of listMultiDayChildren(parentId)) {
+    await removeEventAndAnnounce(client, child);
+  }
+}
+
+function stripDaySuffix(mapped: MappedEvent): MappedEvent {
+  return { ...mapped, title: withoutDaySuffix(mapped.title) };
+}
+
+/**
+ * Generates/reconciles a Multi-Day Event's per-day Children against its
+ * current span — creating a Child for a newly added day, marking removed
+ * one for a dropped day (never touching an already-finalized Child's
+ * recorded attendance), and propagating a parent-level field edit (title,
+ * description, location) to every still-live Child, reusing the exact
+ * single-Event Calendar Change Handling flow once per Child. Every other
+ * mechanic (Check-in Post, Reaction Cutoff, Event Attendance Report) needs
+ * no special handling here at all — a Child is an ordinary all_day Event
+ * once it exists, and `postDueCheckins`/`finalizeDueCutoffs` pick it up the
+ * same way they would any other. See CONTEXT.md, Multi-Day Child Event.
+ */
+async function syncMultiDayChildren(
+  client: WebClient,
+  parentRow: EventRow,
+  parentMapped: MappedEvent,
+  offsets: CheckinPostOffsets
+): Promise<void> {
+  const result = multiDayChildEvents(
+    parentMapped,
+    offsets,
+    multiDayDaysBefore()
+  );
+  if (!result.ok) {
+    await notifyMultiDayOverCap(client, parentMapped, result.dayCount);
+    return;
+  }
+
+  const existingChildren = listMultiDayChildren(parentRow.id);
+  const { toCreate, toRemove } = reconcileMultiDayChildren(
+    existingChildren.map((c) => c.calendar_event_id ?? ""),
+    result.children.map((c) => c.calendarEventId)
+  );
+
+  for (const spec of result.children) {
+    if (!toCreate.includes(spec.calendarEventId)) continue;
+    insertEvent({
+      calendarEventId: spec.calendarEventId,
+      calendarLink: parentMapped.calendarLink,
+      source: "google_calendar",
+      calendarRole: parentRow.calendar_role,
+      title: spec.title,
+      description: parentMapped.description,
+      location: parentMapped.location,
+      meetingType: spec.meetingType,
+      startsAt: spec.startsAt.toISOString(),
+      endsAt: spec.endsAt.toISOString(),
+      checkinAt: spec.checkinAt.toISOString(),
+      reactionCutoffAt: reactionCutoff({
+        meetingType: spec.meetingType,
+        startsAt: spec.startsAt,
+        endsAt: spec.endsAt,
+      }).toISOString(),
+      multidayParentId: parentRow.id,
+    });
+  }
+
+  for (const child of existingChildren) {
+    if (!toRemove.includes(child.calendar_event_id ?? "")) continue;
+    await removeEventAndAnnounce(client, child);
+  }
+
+  const continuing = existingChildren.filter(
+    (c) =>
+      !c.removed_at &&
+      !c.finalized_at &&
+      !toRemove.includes(c.calendar_event_id ?? "")
+  );
+  for (const child of continuing) {
+    const spec = result.children.find(
+      (s) => s.calendarEventId === child.calendar_event_id
+    );
+    if (!spec) continue;
+
+    const current = toChildMappedEvent(spec, parentMapped);
+    const change = diffEvent(
+      stripDaySuffix(toMappedEvent(child)),
+      stripDaySuffix(current)
+    );
+    if (change.kind !== "edited") continue;
+
+    updateEventFromCalendar(child.id, {
+      calendarLink: current.calendarLink,
+      title: current.title,
+      description: current.description,
+      location: current.location,
+      meetingType: current.meetingType,
+      startsAt: current.startsAt.toISOString(),
+      endsAt: current.endsAt.toISOString(),
+      checkinAt: spec.checkinAt.toISOString(),
+      reactionCutoffAt: reactionCutoff({
+        meetingType: current.meetingType,
+        startsAt: current.startsAt,
+        endsAt: current.endsAt,
+      }).toISOString(),
+    });
+    const updatedChild = getEvent(child.id);
+    if (updatedChild && child.checkin_posted_at) {
+      await announceEventEdited(
+        client,
+        child,
+        updatedChild,
+        change.changedFields
+      );
+    }
+  }
 }
 
 /**
@@ -191,7 +408,15 @@ async function syncOneCalendar(
         reactionCutoffAt: reactionCutoff(mapped).toISOString(),
       });
       const newRow = getEvent(newId);
-      if (newRow) await reflectWeeklySummaryChange(client, newRow, "changed");
+      if (newRow) {
+        await reflectWeeklySummaryChange(client, newRow, "changed");
+        if (
+          mapped.meetingType === "multi_day" &&
+          calendarRole === "team_meeting"
+        ) {
+          await syncMultiDayChildren(client, newRow, mapped, offsets);
+        }
+      }
       continue;
     }
 
@@ -201,11 +426,11 @@ async function syncOneCalendar(
     if (change.kind === "unchanged") continue;
 
     if (change.kind === "removed") {
-      markEventRemoved(existing.id);
-      if (existing.checkin_posted_at) {
-        await announceEventRemoved(client, existing);
-      }
+      await removeEventAndAnnounce(client, existing);
       await reflectWeeklySummaryChange(client, existing, "removed");
+      if (existing.meeting_type === "multi_day") {
+        await removeAllMultiDayChildren(client, existing.id);
+      }
       continue;
     }
 
@@ -234,6 +459,18 @@ async function syncOneCalendar(
         );
       }
       await reflectWeeklySummaryChange(client, updated, "changed");
+      if (
+        updated.meeting_type === "multi_day" &&
+        updated.calendar_role === "team_meeting"
+      ) {
+        await syncMultiDayChildren(client, updated, mapped, offsets);
+      } else if (existing.meeting_type === "multi_day") {
+        // The span no longer maps to Multi-Day (e.g. shortened to a single
+        // day) — any Children generated while it still was one are no
+        // longer reconciled by anything else, so clean them up here rather
+        // than leaving them orphaned.
+        await removeAllMultiDayChildren(client, existing.id);
+      }
     }
   }
 }

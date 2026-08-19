@@ -181,6 +181,8 @@ export type EventRow = {
   finalized_at: string | null;
   removed_at: string | null;
   verification_failed_at: string | null;
+  /** Set only on a Multi-Day Child Event, pointing back at its Multi-Day Event parent. See CONTEXT.md, Multi-Day Child Event. */
+  multiday_parent_id: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -198,6 +200,8 @@ export type NewEvent = {
   endsAt: string;
   checkinAt: string;
   reactionCutoffAt: string;
+  /** Unset (null) for every ordinary Event; set only when inserting a Multi-Day Child Event. */
+  multidayParentId?: number | null;
 };
 
 export function insertEvent(event: NewEvent): number {
@@ -205,9 +209,9 @@ export function insertEvent(event: NewEvent): number {
   const result = db()
     .prepare(
       `INSERT INTO events (calendar_event_id, calendar_link, source, calendar_role, title, description, location,
-                            meeting_type, starts_at, ends_at, checkin_at, reaction_cutoff_at,
+                            meeting_type, starts_at, ends_at, checkin_at, reaction_cutoff_at, multiday_parent_id,
                             created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       event.calendarEventId,
@@ -222,6 +226,7 @@ export function insertEvent(event: NewEvent): number {
       event.endsAt,
       event.checkinAt,
       event.reactionCutoffAt,
+      event.multidayParentId ?? null,
       now,
       now
     );
@@ -255,6 +260,15 @@ export function updateEventFromCalendar(
       now,
       id
     );
+}
+
+/** Every Multi-Day Child Event of one Multi-Day Event parent, including already-removed/finalized ones — see reconcileMultiDayChildren. */
+export function listMultiDayChildren(parentId: number): EventRow[] {
+  return db()
+    .prepare<[number], EventRow>(
+      "SELECT * FROM events WHERE multiday_parent_id = ?"
+    )
+    .all(parentId);
 }
 
 export function getEventByCalendarId(
@@ -594,7 +608,11 @@ export type RecentOutcomeRow = {
  * belt-and-suspenders: every event_roster row is already team_meeting-only
  * in practice (see snapshotRoster/listEventsDueForCheckin), but nothing in
  * the schema enforces that. Feeds domain/noResponseAlert.ts's
- * isNoResponseStreak.
+ * isNoResponseStreak — which is why Multi-Day Child Events are excluded
+ * here (unlike season/export hours totals, which do count each competition
+ * day): a "streak" is meant to read as a pattern across separate meetings,
+ * and counting one missed 3-day competition as three strikes would trip
+ * the same threshold a real three-week pattern does, on a single absence.
  */
 export function getRecentOutcomesForUser(
   userId: string,
@@ -608,6 +626,7 @@ export function getRecentOutcomesForUser(
        LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = r.user_id
        WHERE ${COUNTABLE_EVENT_WHERE}
          AND e.calendar_role = 'team_meeting'
+         AND e.multiday_parent_id IS NULL
        ORDER BY e.starts_at DESC
        LIMIT ?`
     )
@@ -619,7 +638,11 @@ export function getRecentOutcomesForUser(
 /**
  * Every non-removed Event starting in range for one Calendar Role, any
  * Meeting Type — for the Team Meeting Weekly Summary, the Informational
- * reply, and the Mentor/Teacher Weekly Summary alike.
+ * reply, and the Mentor/Teacher Weekly Summary alike. Excludes Multi-Day
+ * Child Events: a Multi-Day Event's parent row already lists it once, with
+ * its full date range, so its per-day Children (ordinary all_day rows)
+ * would otherwise show up individually alongside it — see CONTEXT.md,
+ * Multi-Day Child Event.
  */
 export function listEventsStartingInRange(
   startIso: string,
@@ -630,6 +653,7 @@ export function listEventsStartingInRange(
     .prepare<[EventCalendarRole, string, string], EventRow>(
       `SELECT * FROM events
        WHERE removed_at IS NULL AND calendar_role = ?
+         AND multiday_parent_id IS NULL
          AND starts_at >= ? AND starts_at < ?
        ORDER BY starts_at`
     )

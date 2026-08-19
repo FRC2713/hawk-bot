@@ -94,6 +94,13 @@ test("the Hourly check-in offset is a positive whole number of hours", () => {
   assert.equal(checkSetting("checkin_offset_hourly_hours", "soon").ok, false);
 });
 
+test("the Multi-Day check-in lead time is a positive whole number of days", () => {
+  assert.equal(checkSetting("checkin_offset_multiday_days", "2").ok, true);
+  assert.equal(checkSetting("checkin_offset_multiday_days", "0").ok, false);
+  assert.equal(checkSetting("checkin_offset_multiday_days", "2.5").ok, false);
+  assert.equal(checkSetting("checkin_offset_multiday_days", "soon").ok, false);
+});
+
 test("the All-Day check-in time is a 24-hour HH:MM", () => {
   assert.equal(checkSetting("checkin_offset_allday_time", "16:00").ok, true);
   assert.equal(checkSetting("checkin_offset_allday_time", "4:00 PM").ok, false);

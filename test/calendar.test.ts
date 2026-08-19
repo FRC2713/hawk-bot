@@ -4,9 +4,14 @@ import {
   checkinPostTime,
   diffEvent,
   mapCalendarEvent,
+  MULTI_DAY_MAX_DAYS,
+  multiDayChildEvents,
   reactionCutoff,
+  reconcileMultiDayChildren,
   resolveCheckinOffsets,
+  resolveMultiDayDaysBefore,
   upcomingEvents,
+  withoutDaySuffix,
 } from "../src/domain/calendar.js";
 
 // Midnight/day-before math reads wall-clock dates via local Date methods,
@@ -200,4 +205,191 @@ test("upcomingEvents drops past and cancelled events, earliest first", () => {
 
 test("upcomingEvents caps at count", () => {
   assert.equal(upcomingEvents([soon, later], now, 1).length, 1);
+});
+
+/* ------------------------------------------------- Multi-Day Child Events */
+
+const multiDayParent = mapCalendarEvent(multiDayRaw); // evt3, Mar 5 (incl.) – Mar 8 (excl.) = 3 days
+const checkinOffsets = {
+  hourlyHoursBefore: 4,
+  allDayHour: 16,
+  allDayMinute: 0,
+};
+
+test("a 3-day Multi-Day Event generates one Child per day, labeled Day N of M", () => {
+  const result = multiDayChildEvents(multiDayParent, checkinOffsets, 2);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.children.length, 3);
+  assert.deepEqual(
+    result.children.map((c) => c.calendarEventId),
+    ["evt3::2026-03-05", "evt3::2026-03-06", "evt3::2026-03-07"]
+  );
+  assert.deepEqual(
+    result.children.map((c) => c.title),
+    [
+      "Regional Competition (Day 1 of 3)",
+      "Regional Competition (Day 2 of 3)",
+      "Regional Competition (Day 3 of 3)",
+    ]
+  );
+  assert.ok(result.children.every((c) => c.meetingType === "all_day"));
+});
+
+test("each Multi-Day Child spans exactly its own calendar day, exclusive end", () => {
+  const result = multiDayChildEvents(multiDayParent, checkinOffsets, 2);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const [day1, day2, day3] = result.children;
+  assert.ok(day1 && day2 && day3);
+  assert.equal(day1.startsAt.toISOString(), "2026-03-05T00:00:00.000Z");
+  assert.equal(day1.endsAt.toISOString(), "2026-03-06T00:00:00.000Z");
+  assert.equal(day2.startsAt.toISOString(), "2026-03-06T00:00:00.000Z");
+  assert.equal(day2.endsAt.toISOString(), "2026-03-07T00:00:00.000Z");
+  assert.equal(day3.startsAt.toISOString(), "2026-03-07T00:00:00.000Z");
+  assert.equal(day3.endsAt.toISOString(), "2026-03-08T00:00:00.000Z");
+});
+
+test("every Multi-Day Child shares the same front-loaded Check-in time, N days before the first day", () => {
+  const result = multiDayChildEvents(multiDayParent, checkinOffsets, 2);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const checkinTimes = result.children.map((c) => c.checkinAt.toISOString());
+  assert.deepEqual(checkinTimes, [
+    "2026-03-03T16:00:00.000Z",
+    "2026-03-03T16:00:00.000Z",
+    "2026-03-03T16:00:00.000Z",
+  ]);
+});
+
+test("a Multi-Day Child, run through the existing All-Day Reaction Cutoff formula, gets an independent per-day cutoff", () => {
+  const result = multiDayChildEvents(multiDayParent, checkinOffsets, 2);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const cutoffs = result.children.map((c) =>
+    reactionCutoff({
+      meetingType: c.meetingType,
+      startsAt: c.startsAt,
+      endsAt: c.endsAt,
+    }).toISOString()
+  );
+  // Distinct, one per day, despite every Child sharing one checkinAt above.
+  assert.deepEqual(cutoffs, [
+    "2026-03-06T00:00:00.000Z",
+    "2026-03-07T00:00:00.000Z",
+    "2026-03-08T00:00:00.000Z",
+  ]);
+});
+
+test(`a span at the ${MULTI_DAY_MAX_DAYS}-day cap still generates Children`, () => {
+  const tenDayEvent = mapCalendarEvent({
+    ...multiDayRaw,
+    start: { date: "2026-03-05" },
+    end: { date: "2026-03-15" }, // exclusive end, 10 calendar days
+  });
+  const result = multiDayChildEvents(tenDayEvent, checkinOffsets, 2);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.children.length, MULTI_DAY_MAX_DAYS);
+});
+
+test(`a span one day over the ${MULTI_DAY_MAX_DAYS}-day cap is rejected, not truncated`, () => {
+  const elevenDayEvent = mapCalendarEvent({
+    ...multiDayRaw,
+    start: { date: "2026-03-05" },
+    end: { date: "2026-03-16" }, // exclusive end, 11 calendar days
+  });
+  const result = multiDayChildEvents(elevenDayEvent, checkinOffsets, 2);
+  assert.deepEqual(result, { ok: false, dayCount: 11 });
+});
+
+test("reconcileMultiDayChildren creates a Child for a day added to the span", () => {
+  assert.deepEqual(
+    reconcileMultiDayChildren(
+      ["evt3::day1", "evt3::day2", "evt3::day3"],
+      ["evt3::day1", "evt3::day2", "evt3::day3", "evt3::day4"]
+    ),
+    { toCreate: ["evt3::day4"], toRemove: [] }
+  );
+});
+
+test("reconcileMultiDayChildren removes a Child for a day dropped from the middle of the span", () => {
+  assert.deepEqual(
+    reconcileMultiDayChildren(
+      ["evt3::day1", "evt3::day2", "evt3::day3"],
+      ["evt3::day1", "evt3::day3"]
+    ),
+    { toCreate: [], toRemove: ["evt3::day2"] }
+  );
+});
+
+test("reconcileMultiDayChildren removes a Child for a day dropped off the end of the span", () => {
+  assert.deepEqual(
+    reconcileMultiDayChildren(
+      ["evt3::day1", "evt3::day2", "evt3::day3"],
+      ["evt3::day1", "evt3::day2"]
+    ),
+    { toCreate: [], toRemove: ["evt3::day3"] }
+  );
+});
+
+test("reconcileMultiDayChildren is a no-op when the span hasn't changed", () => {
+  const ids = ["evt3::day1", "evt3::day2", "evt3::day3"];
+  assert.deepEqual(reconcileMultiDayChildren(ids, ids), {
+    toCreate: [],
+    toRemove: [],
+  });
+});
+
+test("a Multi-Day Event whose span shifts (not just grows or shrinks) keeps the same id for a day that stays in the span", () => {
+  // Mar 5-7 (3 days) shifts to Mar 6-8 (still 3 days, one day later).
+  const before = multiDayChildEvents(multiDayParent, checkinOffsets, 2);
+  const shifted = mapCalendarEvent({
+    ...multiDayRaw,
+    start: { date: "2026-03-06" },
+    end: { date: "2026-03-09" },
+  });
+  const after = multiDayChildEvents(shifted, checkinOffsets, 2);
+  assert.equal(before.ok, true);
+  assert.equal(after.ok, true);
+  if (!before.ok || !after.ok) return;
+
+  const { toCreate, toRemove } = reconcileMultiDayChildren(
+    before.children.map((c) => c.calendarEventId),
+    after.children.map((c) => c.calendarEventId)
+  );
+  // Mar 6 and Mar 7 are in both spans and must not be recreated; only
+  // Mar 5 (dropped) and Mar 8 (added) should move.
+  assert.deepEqual(toCreate, ["evt3::2026-03-08"]);
+  assert.deepEqual(toRemove, ["evt3::2026-03-05"]);
+});
+
+test("withoutDaySuffix strips the Day-N-of-M tag but leaves the rest of the title alone", () => {
+  assert.equal(
+    withoutDaySuffix("Regional Competition (Day 2 of 3)"),
+    "Regional Competition"
+  );
+  assert.equal(
+    withoutDaySuffix("Regional Competition (Day 2 of 4)"),
+    "Regional Competition",
+    "a day count that only changed because another day was added/removed still strips cleanly"
+  );
+  assert.equal(
+    withoutDaySuffix("State Championship (Day 2 of 3)"),
+    "State Championship",
+    "a real title edit alongside the Child's own suffix still leaves a comparably different base title"
+  );
+  assert.equal(
+    withoutDaySuffix("Team Meeting"),
+    "Team Meeting",
+    "a title with no suffix at all is returned unchanged"
+  );
+});
+
+test("an unset Multi-Day Check-in lead time falls back to the starting default", () => {
+  assert.equal(resolveMultiDayDaysBefore(undefined), 2);
+});
+
+test("a set Multi-Day Check-in lead time overrides the default", () => {
+  assert.equal(resolveMultiDayDaysBefore("3"), 3);
 });
