@@ -1,5 +1,6 @@
 import type { WebClient } from "@slack/web-api";
 import type { EventRow } from "../db/repo.js";
+import { formatEventWhen, type MeetingType } from "../domain/attendance.js";
 import { log } from "../logger.js";
 import { listHawkBotAdmins } from "./authz.js";
 import {
@@ -18,19 +19,11 @@ import { fetchChannelRoster } from "./roster.js";
 export const PRE_POPULATED_REACTIONS = ["+1", "clock3", "x"] as const;
 
 function formatEventTime(event: EventRow): string {
-  const start = new Date(event.starts_at);
-  const dateStr = start.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
-  if (event.meeting_type === "all_day") return dateStr;
-  const end = new Date(event.ends_at);
-  const timeFmt: Intl.DateTimeFormatOptions = {
-    hour: "numeric",
-    minute: "2-digit",
-  };
-  return `${dateStr}, ${start.toLocaleTimeString("en-US", timeFmt)}–${end.toLocaleTimeString("en-US", timeFmt)}`;
+  return formatEventWhen(
+    new Date(event.starts_at),
+    new Date(event.ends_at),
+    event.meeting_type as MeetingType
+  );
 }
 
 /** Strikes through each non-blank line individually, rather than one span across the whole block, so a blank line can't break the formatting partway through. */
