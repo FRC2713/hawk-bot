@@ -34,7 +34,6 @@ import {
 } from "./db/repo.js";
 import { log } from "./logger.js";
 import {
-  deleteWeeklySummary,
   postInformationalReply,
   postWeeklySummary,
   updateWeeklySummary,
@@ -323,8 +322,8 @@ export async function reflectWeeklySummaryChange(
 }
 
 /**
- * If due, deletes the previous Weekly Summary Post (and its Informational
- * reply, if it had one) and posts this week's — then, if the Informational
+ * If due, posts this week's Weekly Summary Post — alongside every prior
+ * week's, never replacing them (see ADR-0014) — then, if the Informational
  * Calendar is enabled and has anything in range, posts this week's
  * Informational reply threaded under it.
  */
@@ -337,34 +336,6 @@ export async function postDueWeeklySummary(client: WebClient): Promise<void> {
   const lastPostedAt = mostRecent ? new Date(mostRecent.posted_at) : null;
   const now = new Date();
   if (!isWeeklySummaryDue(lastPostedAt, timing, now)) return;
-
-  if (mostRecent) {
-    await deleteWeeklySummary(
-      client,
-      mostRecent.channel,
-      mostRecent.message_ts
-    ).catch((err) =>
-      log.error("could not delete previous weekly summary", {
-        weeklySummaryId: mostRecent.id,
-        error: String(err),
-      })
-    );
-    if (
-      mostRecent.informational_channel &&
-      mostRecent.informational_message_ts
-    ) {
-      await deleteWeeklySummary(
-        client,
-        mostRecent.informational_channel,
-        mostRecent.informational_message_ts
-      ).catch((err) =>
-        log.error("could not delete previous informational reply", {
-          weeklySummaryId: mostRecent.id,
-          error: String(err),
-        })
-      );
-    }
-  }
 
   const { start, end } = upcomingWeekRange(now);
   const events = listEventsStartingInRange(
