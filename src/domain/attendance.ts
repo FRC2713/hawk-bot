@@ -357,8 +357,8 @@ export function formatAttendanceReportSummary(args: {
   const when = formatEventWhen(args.startsAt, args.endsAt, args.meetingType);
   return [
     ":calendar: *Meeting Attendance Report*",
-    `*${args.eventTitle}*`,
-    `${when} (${args.hoursPerAttendee}h credited)`,
+    `> *${args.eventTitle}*`,
+    `> ${when} (${args.hoursPerAttendee}h credited)`,
     "",
     `• ${attending} attended :thumbsup:`,
     `• ${notAttending} didn't attend :x:`,

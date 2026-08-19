@@ -296,8 +296,8 @@ test("the report summary states counts and credited hours, not a summed total, a
     summary,
     [
       ":calendar: *Meeting Attendance Report*",
-      "*Team Meeting*",
-      "Monday, August 17, 6:30 PM–8:30 PM (2h credited)",
+      "> *Team Meeting*",
+      "> Monday, August 17, 6:30 PM–8:30 PM (2h credited)",
       "",
       "• 2 attended :thumbsup:",
       "• 1 didn't attend :x:",
@@ -322,8 +322,8 @@ test("an all-day meeting's report summary shows just the date, with its fixed cr
     summary,
     [
       ":calendar: *Meeting Attendance Report*",
-      "*Regionals*",
-      "Monday, August 17 (8h credited)",
+      "> *Regionals*",
+      "> Monday, August 17 (8h credited)",
       "",
       "• 1 attended :thumbsup:",
       "• 0 didn't attend :x:",
