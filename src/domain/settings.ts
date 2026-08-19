@@ -17,6 +17,7 @@ export type SettingKey =
   | "google_impersonated_user"
   | "checkin_offset_hourly_hours"
   | "checkin_offset_allday_time"
+  | "checkin_offset_multiday_days"
   | "default_all_day_hours"
   | "attendance_report_channel"
   | "admin_usergroup"
@@ -130,6 +131,13 @@ export const SETTINGS: readonly Setting[] = [
       "What time, the day before, an All-Day meeting's Check-in Post goes out",
     expects: "a 24-hour time HH:MM, e.g. 16:00",
     validate: (v) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(v.trim()),
+  },
+  {
+    key: "checkin_offset_multiday_days",
+    summary:
+      "How many days before a Multi-Day Event's first day every one of its per-day Check-in Posts goes out together",
+    expects: "a whole number of days, e.g. 2",
+    validate: (v) => /^\d+$/.test(v.trim()) && Number(v.trim()) > 0,
   },
   {
     key: "default_all_day_hours",

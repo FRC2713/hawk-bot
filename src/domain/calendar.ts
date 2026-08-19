@@ -51,6 +51,14 @@ function parseDateOnly(dateStr: string): Date {
   return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
 }
 
+/** The inverse of `parseDateOnly` — a local calendar date as "YYYY-MM-DD". */
+function formatDateOnly(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 /**
  * Google represents an all-day event's end as the day *after* its last day,
  * even for a single-day event — a same-day event has `end.date` one day
@@ -220,6 +228,134 @@ export function diffEvent(
   return changedFields.length === 0
     ? { kind: "unchanged" }
     : { kind: "edited", changedFields };
+}
+
+/**
+ * A Multi-Day Event's synthetic per-day Child — an ordinary All-Day Event
+ * that gets its own Event Check-in Post, Reaction Cutoff, and Event
+ * Attendance Report, reusing that machinery unmodified (see CONTEXT.md,
+ * Multi-Day Child Event). `checkinAt` is identical across every Child of
+ * the same Multi-Day Event — front-loaded, N days before the span's first
+ * day — but each Child's own Reaction Cutoff (computed by the caller via
+ * the existing `reactionCutoff()`, keyed to that Child's own
+ * `startsAt`/`endsAt`) still lands independently at the end of its own day.
+ */
+export type MultiDayChildSpec = {
+  calendarEventId: string;
+  dayNumber: number;
+  title: string;
+  meetingType: "all_day";
+  startsAt: Date;
+  endsAt: Date;
+  checkinAt: Date;
+};
+
+/**
+ * A Multi-Day Event longer than this many days is flagged for a HawkBot
+ * Admin to handle manually rather than generating Children for it — see
+ * CONTEXT.md, Multi-Day Child Event. Comfortably above any realistic FRC
+ * competition length.
+ */
+export const MULTI_DAY_MAX_DAYS = 10;
+
+export type MultiDayChildEventsResult =
+  { ok: true; children: MultiDayChildSpec[] } | { ok: false; dayCount: number };
+
+/**
+ * One Multi-Day Child per calendar day of the span, `Day N of M` baked into
+ * each title at generation time. `endsAt` follows the same Google
+ * exclusive-end convention as every other All-Day Event (see MappedEvent).
+ *
+ * Each Child's `calendarEventId` is keyed by its actual calendar date
+ * (`<parent id>::YYYY-MM-DD`), not by its offset from the start of the
+ * current span — a span shift (the whole event moving a day earlier or
+ * later, not just growing or shrinking) still identifies "the day that is
+ * Mar 6" as the same Child it always was, so `reconcileMultiDayChildren`
+ * only ever creates/removes the days that actually entered or left the
+ * span, and never reattaches one day's already-collected attendance to a
+ * different date.
+ */
+export function multiDayChildEvents(
+  parent: {
+    calendarEventId: string;
+    title: string;
+    startsAt: Date;
+    endsAt: Date;
+  },
+  offsets: CheckinPostOffsets,
+  multiDayDaysBefore: number
+): MultiDayChildEventsResult {
+  const dayCount = Math.round(
+    (parent.endsAt.getTime() - parent.startsAt.getTime()) / DAY_MS
+  );
+  if (dayCount > MULTI_DAY_MAX_DAYS) return { ok: false, dayCount };
+
+  const checkinAt = new Date(
+    parent.startsAt.getFullYear(),
+    parent.startsAt.getMonth(),
+    parent.startsAt.getDate() - multiDayDaysBefore,
+    offsets.allDayHour,
+    offsets.allDayMinute
+  );
+
+  const children: MultiDayChildSpec[] = [];
+  for (let i = 0; i < dayCount; i++) {
+    const dayNumber = i + 1;
+    const startsAt = new Date(
+      parent.startsAt.getFullYear(),
+      parent.startsAt.getMonth(),
+      parent.startsAt.getDate() + i
+    );
+    children.push({
+      calendarEventId: `${parent.calendarEventId}::${formatDateOnly(startsAt)}`,
+      dayNumber,
+      title: `${parent.title} (Day ${dayNumber} of ${dayCount})`,
+      meetingType: "all_day",
+      startsAt,
+      endsAt: midnightEnding(startsAt),
+      checkinAt,
+    });
+  }
+  return { ok: true, children };
+}
+
+/** The "(Day N of M)" suffix `multiDayChildEvents` bakes into a Child's title. */
+const DAY_SUFFIX_RE = / \(Day \d+ of \d+\)$/;
+
+/**
+ * Strips a Child's Day-N-of-M suffix, so its title can be compared for a
+ * real edit without a shift in M — the total day count, which changes
+ * whenever any day (not necessarily this one) is added to or dropped from
+ * the span — being mistaken for an edit to this day's own title.
+ */
+export function withoutDaySuffix(title: string): string {
+  return title.replace(DAY_SUFFIX_RE, "");
+}
+
+/** Starting default, used until a Hawk Bot admin sets `checkin_offset_multiday_days`. */
+export const DEFAULT_MULTIDAY_DAYS_BEFORE = 2;
+
+export function resolveMultiDayDaysBefore(setting: string | undefined): number {
+  return setting ? Number(setting) : DEFAULT_MULTIDAY_DAYS_BEFORE;
+}
+
+/**
+ * Diffs a Multi-Day Event's currently-stored Child ids against the set its
+ * (possibly just-edited) span now calls for — which Children to create for
+ * a newly added day, and which to mark removed for a dropped one. Pure: the
+ * caller decides what removal actually means for an already-finalized
+ * Child (never retroactively altered) versus one that hasn't posted yet.
+ */
+export function reconcileMultiDayChildren(
+  existingChildCalendarEventIds: readonly string[],
+  desiredChildCalendarEventIds: readonly string[]
+): { toCreate: string[]; toRemove: string[] } {
+  const existingSet = new Set(existingChildCalendarEventIds);
+  const desiredSet = new Set(desiredChildCalendarEventIds);
+  return {
+    toCreate: desiredChildCalendarEventIds.filter((id) => !existingSet.has(id)),
+    toRemove: existingChildCalendarEventIds.filter((id) => !desiredSet.has(id)),
+  };
 }
 
 /**
