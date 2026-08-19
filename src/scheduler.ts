@@ -52,6 +52,7 @@ import { log } from "./logger.js";
 import {
   announceEventEdited,
   announceEventRemoved,
+  lockCheckinPost,
   postCheckinPost,
 } from "./slack/checkin.js";
 import { syncAttendanceFromSlack } from "./slack/attendanceEvents.js";
@@ -594,7 +595,7 @@ async function postEventAttendanceReport(
 }
 
 /**
- * Resync, verify, and — only on success — credit hours, delete the
+ * Resync, verify, and — only on success — credit hours, lock the
  * Check-in Post, finalize, and post the Event Attendance Report. Shared by
  * the scheduler's normal sweep and the manual `/hawkbot event retry-cutoff`
  * command, so a retry is exactly the same flow run again on demand.
@@ -651,19 +652,12 @@ export async function attemptEventCutoff(
     setHoursCredited(event.id, row.user_id, hours);
   }
 
-  if (event.checkin_channel && event.checkin_message_ts) {
-    await client.chat
-      .delete({
-        channel: event.checkin_channel,
-        ts: event.checkin_message_ts,
-      })
-      .catch((err) =>
-        log.error("could not delete check-in post", {
-          eventId: event.id,
-          error: String(err),
-        })
-      );
-  }
+  await lockCheckinPost(client, event).catch((err) =>
+    log.error("could not lock check-in post", {
+      eventId: event.id,
+      error: String(err),
+    })
+  );
   markEventFinalized(event.id);
   log.info("event finalized", { eventId: event.id });
 

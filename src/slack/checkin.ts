@@ -42,6 +42,14 @@ const REACTION_LEGEND = [
   "❌, or anything else — I can't make it (reply in this thread with why, if you want)",
 ];
 
+/** When, where, and description — shared by every post-title variant of the meeting details. */
+function meetingDetailBodyLines(event: EventRow): string[] {
+  const lines = [formatEventTime(event)];
+  if (event.location) lines.push(`📍 ${event.location}`);
+  if (event.description) lines.push(event.description);
+  return lines;
+}
+
 /**
  * Title, when, where, and description — the part of the post worth keeping
  * even once it's removed. `updateNote`, when given, marks the title line as
@@ -52,14 +60,25 @@ function meetingDetailsText(event: EventRow, updateNote?: string): string {
   const titleLine = updateNote
     ? `<!channel> ✏️ *${event.title}* _(updated: ${updateNote})_`
     : `<!channel> *${event.title}*`;
-  const lines = [titleLine, formatEventTime(event)];
-  if (event.location) lines.push(`📍 ${event.location}`);
-  if (event.description) lines.push(event.description);
-  return lines.join("\n");
+  return [titleLine, ...meetingDetailBodyLines(event)].join("\n");
 }
 
 function checkinMessageText(event: EventRow): string {
   return [meetingDetailsText(event), ...REACTION_LEGEND].join("\n");
+}
+
+/**
+ * The Reaction Cutoff's locked-post text, replacing `checkinMessageText`
+ * once attendance closes — see ADR-0013. Drops `<!channel>` (nothing left
+ * to ping about) and the reaction legend entirely (not struck through:
+ * unlike Calendar Change Handling's "removed" case, there's no value in
+ * showing what the legend used to say). Meeting details stay exactly as
+ * `meetingDetailsText` already renders them, since the meeting itself
+ * still happened.
+ */
+export function lockedCheckinMessageText(event: EventRow): string {
+  const titleLine = `✅ *${event.title}* — attendance closed`;
+  return [titleLine, ...meetingDetailBodyLines(event)].join("\n");
 }
 
 /**
@@ -151,6 +170,26 @@ async function notifyReactionSeedFailure(
       })
     );
   }
+}
+
+/**
+ * The Reaction Cutoff's lock step, replacing the old delete — see
+ * ADR-0013. Rewrites the Check-in Post in place with
+ * `lockedCheckinMessageText`; leaves every reaction on the post (seeded
+ * and human) and the thread (Attendance Notes and all) exactly as they
+ * are — a bot token can't touch a human's reaction or reply anyway, and
+ * there's no reason to strip its own seeded ones either.
+ */
+export async function lockCheckinPost(
+  client: WebClient,
+  event: EventRow
+): Promise<void> {
+  if (!event.checkin_channel || !event.checkin_message_ts) return;
+  await client.chat.update({
+    channel: event.checkin_channel,
+    ts: event.checkin_message_ts,
+    text: lockedCheckinMessageText(event),
+  });
 }
 
 /** One `~old~ → new` line per changed field worth showing a before/after for. */
