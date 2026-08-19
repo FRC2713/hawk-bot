@@ -50,6 +50,13 @@ function meetingDetailBodyLines(event: EventRow): string[] {
   return lines;
 }
 
+/** Bolded, and linked to the calendar event when the Event has one. */
+function linkedTitle(event: EventRow): string {
+  return event.calendar_link
+    ? `<${event.calendar_link}|*${event.title}*>`
+    : `*${event.title}*`;
+}
+
 /**
  * Title, when, where, and description — the part of the post worth keeping
  * even once it's removed. `updateNote`, when given, marks the title line as
@@ -58,8 +65,8 @@ function meetingDetailBodyLines(event: EventRow): string[] {
  */
 function meetingDetailsText(event: EventRow, updateNote?: string): string {
   const titleLine = updateNote
-    ? `<!channel> ✏️ *${event.title}* _(updated: ${updateNote})_`
-    : `<!channel> *${event.title}*`;
+    ? `<!channel> ✏️ ${linkedTitle(event)} _(updated: ${updateNote})_`
+    : `<!channel> ${linkedTitle(event)}`;
   return [titleLine, ...meetingDetailBodyLines(event)].join("\n");
 }
 
@@ -77,7 +84,7 @@ function checkinMessageText(event: EventRow): string {
  * still happened.
  */
 export function lockedCheckinMessageText(event: EventRow): string {
-  const titleLine = `✅ *${event.title}* — attendance closed`;
+  const titleLine = `✅ ${linkedTitle(event)} — attendance closed`;
   return [titleLine, ...meetingDetailBodyLines(event)].join("\n");
 }
 
@@ -294,7 +301,7 @@ export async function announceEventRemoved(
     channel: event.checkin_channel,
     ts: event.checkin_message_ts,
     text: [
-      `🚫 *${event.title}* — this meeting has been removed.`,
+      `🚫 ${linkedTitle(event)} — this meeting has been removed.`,
       "",
       strikethroughLines(meetingDetailsText(event)),
     ].join("\n"),

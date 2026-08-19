@@ -1,6 +1,7 @@
 import type { WebClient } from "@slack/web-api";
 import {
   assembleWeeklySummaryMessage,
+  calendarSubscribeLink,
   formatWeeklySummaryLine,
   isWeeklySummaryDue,
   isWithinWeek,
@@ -48,6 +49,7 @@ export function toWeeklySummaryEventInfo(
     startsAt: new Date(row.starts_at),
     endsAt: new Date(row.ends_at),
     location: row.location,
+    calendarLink: row.calendar_link,
   };
 }
 
@@ -61,8 +63,17 @@ type SummaryItemSnapshot = Pick<
   | "snapshot_location"
 >;
 
+/**
+ * `calendarLink` isn't itself part of the stored snapshot (the snapshot
+ * table only tracks the fields Weekly Summary Change Reflection diffs) — it
+ * comes from the same underlying Event's current `calendar_link` instead,
+ * since a Google Calendar event's own link doesn't change when its fields
+ * do, so it's exactly as valid for the "as first shown" struck-through side
+ * of an edit as for the current side.
+ */
 function snapshotToEventInfo(
-  item: SummaryItemSnapshot
+  item: SummaryItemSnapshot,
+  calendarLink: string | null
 ): WeeklySummaryEventInfo {
   return {
     title: item.snapshot_title,
@@ -70,6 +81,7 @@ function snapshotToEventInfo(
     startsAt: new Date(item.snapshot_starts_at),
     endsAt: new Date(item.snapshot_ends_at),
     location: item.snapshot_location,
+    calendarLink,
   };
 }
 
@@ -127,16 +139,22 @@ function buildEntriesFromItems(
 ): WeeklySummaryLineEntry[] {
   const entries: WeeklySummaryLineEntry[] = [];
   for (const item of items) {
-    const snapshotInfo = snapshotToEventInfo(item);
-    const event = item.removed ? undefined : getEvent(item.event_id);
+    // Fetched even when already `removed` — the row (and its
+    // `calendar_link`) still exists, only `removed_at` gets set.
+    const liveEvent = getEvent(item.event_id);
+    const snapshotInfo = snapshotToEventInfo(
+      item,
+      liveEvent?.calendar_link ?? null
+    );
 
-    if (!event) {
+    if (item.removed || !liveEvent) {
       entries.push({
         sortKey: snapshotInfo.startsAt,
         text: renderRemovedLine(snapshotInfo),
       });
       continue;
     }
+    const event = liveEvent;
 
     const currentInfo = toWeeklySummaryEventInfo(event);
     if (item.added_mid_week) {
@@ -172,6 +190,9 @@ async function rebuildAndUpdateWeeklySummary(
     weekStart: new Date(summary.week_start),
     weekEnd: new Date(summary.week_end),
     entries,
+    subscribeLink: calendarSubscribeLink(
+      getSetting("team_meeting_calendar_id")
+    ),
   });
   await updateWeeklySummary(client, summary.channel, summary.message_ts, text);
 }
@@ -191,6 +212,9 @@ async function rebuildAndUpdateInformationalReply(
     weekEnd: new Date(summary.week_end),
     entries,
     label: "Informational Calendar",
+    subscribeLink: calendarSubscribeLink(
+      getSetting("informational_calendar_id")
+    ),
   });
   await updateWeeklySummary(
     client,
@@ -213,7 +237,8 @@ async function reflectInformationalReplyChange(
   event: EventRow,
   kind: "changed" | "removed"
 ): Promise<void> {
-  if (!getSetting("informational_calendar_id")) return;
+  const calendarId = getSetting("informational_calendar_id");
+  if (!calendarId) return;
 
   const summary = getMostRecentWeeklySummary();
   if (!summary) return;
@@ -243,6 +268,7 @@ async function reflectInformationalReplyChange(
       weekEnd: range.end,
       entries,
       label: "Informational Calendar",
+      subscribeLink: calendarSubscribeLink(calendarId),
     });
     await postInformationalReply(
       client,
@@ -352,6 +378,9 @@ export async function postDueWeeklySummary(client: WebClient): Promise<void> {
     weekStart: start,
     weekEnd: end,
     entries,
+    subscribeLink: calendarSubscribeLink(
+      getSetting("team_meeting_calendar_id")
+    ),
   });
 
   const { channel, ts } = await postWeeklySummary(client, channelId, text);
@@ -373,7 +402,8 @@ export async function postDueWeeklySummary(client: WebClient): Promise<void> {
     eventCount: events.length,
   });
 
-  if (getSetting("informational_calendar_id")) {
+  const informationalCalendarId = getSetting("informational_calendar_id");
+  if (informationalCalendarId) {
     const infoEvents = listEventsStartingInRange(
       start.toISOString(),
       end.toISOString(),
@@ -389,6 +419,7 @@ export async function postDueWeeklySummary(client: WebClient): Promise<void> {
         weekEnd: end,
         entries: infoEntries,
         label: "Informational Calendar",
+        subscribeLink: calendarSubscribeLink(informationalCalendarId),
       });
       await postInformationalReply(client, channel, ts, infoText)
         .then(({ channel: replyChannel, ts: replyTs }) => {

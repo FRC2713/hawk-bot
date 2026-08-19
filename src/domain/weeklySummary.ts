@@ -134,6 +134,8 @@ export type WeeklySummaryEventInfo = {
    */
   endsAt: Date;
   location: string;
+  /** The Event's own `htmlLink`, if any — see domain/calendar.ts's MappedEvent. */
+  calendarLink: string | null;
 };
 
 export const DATE_FMT: Intl.DateTimeFormatOptions = {
@@ -158,9 +160,16 @@ function formatWhen(info: WeeklySummaryEventInfo): string {
   return `${info.startsAt.toLocaleDateString("en-US", DATE_FMT)} – ${inclusiveEnd.toLocaleDateString("en-US", DATE_FMT)}`;
 }
 
+/** Bolded, and linked to the calendar event when a link is known. */
+function linkedTitle(info: WeeklySummaryEventInfo): string {
+  return info.calendarLink
+    ? `<${info.calendarLink}|*${info.title}*>`
+    : `*${info.title}*`;
+}
+
 /** One event's line: title, when, and location — the building block every render case shares. */
 export function formatWeeklySummaryLine(info: WeeklySummaryEventInfo): string {
-  const parts = [`*${info.title}*`, formatWhen(info)];
+  const parts = [linkedTitle(info), formatWhen(info)];
   if (info.location) parts.push(`📍 ${info.location}`);
   return parts.join(" — ");
 }
@@ -220,11 +229,28 @@ export type WeeklySummaryLineEntry = {
 };
 
 /**
+ * The standard Google Calendar "add this calendar" URL for a calendar id, or
+ * `undefined` when there's no id (a calendar setting left unconfigured) —
+ * every caller can pass a `getSetting(...)` result straight through without
+ * its own null check. Whether the link actually grants access depends
+ * entirely on that calendar's own sharing settings in Google Calendar —
+ * hawk-bot has no say in that, it just builds the URL a person would need.
+ */
+export function calendarSubscribeLink(
+  calendarId: string | null | undefined
+): string | undefined {
+  if (!calendarId) return undefined;
+  return `https://calendar.google.com/calendar/u/0/r?cid=${encodeURIComponent(calendarId)}`;
+}
+
+/**
  * Assembles the full message body, sorted chronologically regardless of
  * input order. `label` and `emptyText` default to the Team Meeting Weekly
  * Summary's own wording; the Informational reply and Mentor/Teacher Weekly
  * Summary override `label` so each reads as its own digest rather than a
- * repeat of "This Week".
+ * repeat of "This Week". `subscribeLink`, when given, appends a footer line
+ * — every rebuild passes it again, same as every other part of the message,
+ * since a `chat.update` always replaces the full text.
  */
 export function assembleWeeklySummaryMessage(args: {
   weekStart: Date;
@@ -232,20 +258,25 @@ export function assembleWeeklySummaryMessage(args: {
   entries: readonly WeeklySummaryLineEntry[];
   label?: string;
   emptyText?: string;
+  subscribeLink?: string;
 }): string {
   const lastDay = new Date(args.weekEnd.getTime() - DAY_MS);
   const label = args.label ?? "This Week";
   const header = `*${label}* — ${args.weekStart.toLocaleDateString("en-US", DATE_FMT)} to ${lastDay.toLocaleDateString("en-US", DATE_FMT)}`;
+  const footer = args.subscribeLink
+    ? [`📅 <${args.subscribeLink}|Subscribe to this calendar>`]
+    : [];
 
   if (args.entries.length === 0) {
     return [
       header,
       args.emptyText ?? "_Nothing on the calendar this week._",
+      ...footer,
     ].join("\n\n");
   }
 
   const sorted = [...args.entries].sort(
     (a, b) => a.sortKey.getTime() - b.sortKey.getTime()
   );
-  return [header, ...sorted.map((e) => e.text)].join("\n\n");
+  return [header, ...sorted.map((e) => e.text), ...footer].join("\n\n");
 }

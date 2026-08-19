@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   DEFAULT_WEEKLY_SUMMARY_TIMING,
   assembleWeeklySummaryMessage,
+  calendarSubscribeLink,
   formatWeeklySummaryLine,
   isWeeklySummaryDue,
   isWithinWeek,
@@ -150,6 +151,7 @@ const hourlyInfo: WeeklySummaryEventInfo = {
   startsAt: new Date("2026-01-06T18:00:00Z"),
   endsAt: new Date("2026-01-06T20:00:00Z"),
   location: "Room 204",
+  calendarLink: null,
 };
 
 const allDayInfo: WeeklySummaryEventInfo = {
@@ -158,6 +160,7 @@ const allDayInfo: WeeklySummaryEventInfo = {
   startsAt: new Date("2026-01-10T00:00:00Z"),
   endsAt: new Date("2026-01-11T00:00:00Z"),
   location: "",
+  calendarLink: null,
 };
 
 const multiDayInfo: WeeklySummaryEventInfo = {
@@ -166,6 +169,7 @@ const multiDayInfo: WeeklySummaryEventInfo = {
   startsAt: new Date("2026-03-05T00:00:00Z"),
   endsAt: new Date("2026-03-08T00:00:00Z"), // exclusive, per Google's convention
   location: "Convention Center",
+  calendarLink: null,
 };
 
 test("an Hourly line shows the date, time range, and location", () => {
@@ -271,4 +275,56 @@ test("changed fields names exactly the displayed fields that differ", () => {
     "end time",
     "location",
   ]);
+});
+
+test("a line links the title when the Event has a calendar link", () => {
+  const linked: WeeklySummaryEventInfo = {
+    ...hourlyInfo,
+    calendarLink: "https://calendar.google.com/event?eid=abc123",
+  };
+  const line = formatWeeklySummaryLine(linked);
+  assert.match(
+    line,
+    /^<https:\/\/calendar\.google\.com\/event\?eid=abc123\|\*Team Meeting\*>/
+  );
+});
+
+test("a line shows a plain bolded title when there's no calendar link", () => {
+  const line = formatWeeklySummaryLine(hourlyInfo);
+  assert.match(line, /^\*Team Meeting\*/);
+  assert.doesNotMatch(line, /</);
+});
+
+test("the subscribe link is the standard Google Calendar 'add this calendar' URL", () => {
+  assert.equal(
+    calendarSubscribeLink("team@group.calendar.google.com"),
+    "https://calendar.google.com/calendar/u/0/r?cid=team%40group.calendar.google.com"
+  );
+});
+
+test("no calendar id means no subscribe link", () => {
+  assert.equal(calendarSubscribeLink(null), undefined);
+  assert.equal(calendarSubscribeLink(undefined), undefined);
+});
+
+test("a subscribe link appends a footer line to the assembled message", () => {
+  const message = assembleWeeklySummaryMessage({
+    weekStart: new Date("2026-01-05T00:00:00Z"),
+    weekEnd: new Date("2026-01-12T00:00:00Z"),
+    entries: [],
+    subscribeLink: "https://calendar.google.com/calendar/u/0/r?cid=abc",
+  });
+  assert.match(
+    message,
+    /📅 <https:\/\/calendar\.google\.com\/calendar\/u\/0\/r\?cid=abc\|Subscribe to this calendar>$/
+  );
+});
+
+test("no subscribe link means no footer line", () => {
+  const message = assembleWeeklySummaryMessage({
+    weekStart: new Date("2026-01-05T00:00:00Z"),
+    weekEnd: new Date("2026-01-12T00:00:00Z"),
+    entries: [],
+  });
+  assert.doesNotMatch(message, /📅/);
 });
