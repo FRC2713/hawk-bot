@@ -65,3 +65,19 @@ test("the locked message skips an empty location and description", () => {
   assert.doesNotMatch(text, /📍/);
   assert.equal(text.split("\n").length, 2);
 });
+
+test("the locked message links the title when the Event has a calendar link", () => {
+  const text = lockedCheckinMessageText({
+    ...baseEvent,
+    calendar_link: "https://calendar.google.com/event?eid=abc123",
+  });
+  assert.match(
+    text,
+    /^✅ <https:\/\/calendar\.google\.com\/event\?eid=abc123\|\*Team Meeting\*> — attendance closed/
+  );
+});
+
+test("the locked message shows a plain bolded title when there's no calendar link", () => {
+  const text = lockedCheckinMessageText(baseEvent);
+  assert.match(text, /^✅ \*Team Meeting\* — attendance closed/);
+});

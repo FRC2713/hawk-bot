@@ -1,6 +1,7 @@
 import type { WebClient } from "@slack/web-api";
 import {
   assembleWeeklySummaryMessage,
+  calendarSubscribeLink,
   formatWeeklySummaryLine,
   isWeeklySummaryDue,
   resolveWeeklySummaryTiming,
@@ -56,6 +57,7 @@ export async function postDueMentorSummary(client: WebClient): Promise<void> {
     entries,
     label: "Mentor/Teacher Calendar",
     emptyText: "_Nothing on the Mentor/Teacher Calendar these two weeks._",
+    subscribeLink: calendarSubscribeLink(calendarId),
   });
 
   const { channel, ts } = await postWeeklySummary(client, channelId, text);
