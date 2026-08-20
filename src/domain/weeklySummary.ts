@@ -190,9 +190,13 @@ export function renderEditedLine(args: {
   ].join("\n");
 }
 
-/** A removed Event: struck through and labeled, staying visible rather than deleted from the listing. */
+/**
+ * A removed Event: struck through and labeled, staying visible rather than
+ * deleted from the listing. Never linked — the calendar event itself is
+ * gone, so its `calendarLink` (if any) would just 404.
+ */
 export function renderRemovedLine(snapshot: WeeklySummaryEventInfo): string {
-  return `~${formatWeeklySummaryLine(snapshot)}~ _(removed)_`;
+  return `~${formatWeeklySummaryLine({ ...snapshot, calendarLink: null })}~ _(removed)_`;
 }
 
 /** An Event discovered after the summary's initial post — tagged, not struck through (no "original" to contrast). */
@@ -227,6 +231,18 @@ export type WeeklySummaryLineEntry = {
   sortKey: Date;
   text: string;
 };
+
+/**
+ * Slack mrkdwn blockquotes are per-line (`> `), so a multi-line entry (an
+ * edited line's struck-through/current pair) needs the marker on each of
+ * its lines to stay inside the same quote.
+ */
+function blockquoteLines(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+}
 
 /**
  * The standard Google Calendar "add this calendar" URL for a calendar id, or
@@ -278,5 +294,8 @@ export function assembleWeeklySummaryMessage(args: {
   const sorted = [...args.entries].sort(
     (a, b) => a.sortKey.getTime() - b.sortKey.getTime()
   );
-  return [header, ...sorted.map((e) => e.text), ...footer].join("\n\n");
+  // Joined with a blank *quoted* line (`>`), not `\n\n`, so entries stay one
+  // continuous blockquote instead of splitting into a separate quote box per entry.
+  const list = sorted.map((e) => blockquoteLines(e.text)).join("\n>\n");
+  return [header, list, ...footer].join("\n\n");
 }
