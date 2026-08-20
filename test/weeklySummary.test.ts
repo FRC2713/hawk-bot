@@ -212,6 +212,16 @@ test("a removed line strikes through the whole line and labels it removed", () =
   assert.match(line, /\(removed\)/);
 });
 
+test("a removed line never links the title, even if the snapshot had a calendar link", () => {
+  const linked: WeeklySummaryEventInfo = {
+    ...hourlyInfo,
+    calendarLink: "https://calendar.google.com/event?eid=abc123",
+  };
+  const line = renderRemovedLine(linked);
+  assert.doesNotMatch(line, /</);
+  assert.match(line, /~\*Team Meeting\*.*~/);
+});
+
 test("a new mid-week line is tagged, not struck through", () => {
   const line = renderNewLine(hourlyInfo);
   assert.match(line, /^🆕 _New_/);
@@ -318,6 +328,37 @@ test("a subscribe link appends a footer line to the assembled message", () => {
     message,
     /📅 <https:\/\/calendar\.google\.com\/calendar\/u\/0\/r\?cid=abc\|Subscribe to this calendar>$/
   );
+});
+
+test("the entry list is rendered as a single blockquote, not a bare list", () => {
+  const message = assembleWeeklySummaryMessage({
+    weekStart: new Date("2026-01-05T00:00:00Z"),
+    weekEnd: new Date("2026-01-12T00:00:00Z"),
+    entries: [
+      { sortKey: new Date("2026-01-06T00:00:00Z"), text: "First event" },
+      { sortKey: new Date("2026-01-10T00:00:00Z"), text: "Second event" },
+    ],
+  });
+  assert.match(message, /> First event\n>\n> Second event/);
+  // The header stays outside the quote.
+  assert.match(message, /^\*This Week\*/);
+});
+
+test("a multi-line entry (an edited line) gets the quote marker on every line", () => {
+  const edited = { ...hourlyInfo, location: "Room 310" };
+  const line = renderEditedLine({
+    snapshot: hourlyInfo,
+    current: edited,
+    changedFields: ["location"],
+  });
+  const message = assembleWeeklySummaryMessage({
+    weekStart: new Date("2026-01-05T00:00:00Z"),
+    weekEnd: new Date("2026-01-12T00:00:00Z"),
+    entries: [{ sortKey: hourlyInfo.startsAt, text: line }],
+  });
+  for (const l of line.split("\n")) {
+    assert.ok(message.includes(`> ${l}`));
+  }
 });
 
 test("no subscribe link means no footer line", () => {
