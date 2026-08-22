@@ -36,6 +36,9 @@ features:
 oauth_config:
   redirect_urls:
     - https://hawk-bot.example.org/slack/oauth_redirect
+    # Sign in with Slack (OpenID Connect) for the web configuration page —
+    # see src/web/routes.ts and ADR-0015.
+    - https://hawk-bot.example.org/auth/slack/callback
   scopes:
     # Keep identical to BOT_SCOPES in src/slack/app.ts.
     bot:
@@ -69,7 +72,16 @@ oauth_config:
       # reading that group's membership — the other half of the
       # authorization model, alongside the Owner check above.
       - usergroups:read
-    # Deliberately none. Hawk Bot never acts on a person's behalf.
+    # These are Sign in with Slack's OpenID Connect identity scopes, NOT user
+    # token scopes — the deliberate, sole exception to "no user scopes". The
+    # token they yield can call openid.connect.userInfo ("who is this
+    # person") and nothing else: no messages, no acting on anyone's behalf.
+    # It is used for that one call during web sign-in and discarded, never
+    # stored. See ADR-0015. Keep identical to OIDC_SCOPES in
+    # src/web/routes.ts.
+    user:
+      - openid
+      - profile
 
 settings:
   interactivity:
