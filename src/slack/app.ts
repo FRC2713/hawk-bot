@@ -3,6 +3,7 @@ import { APP_NAME, BRAND, ICON_SVG, SLASH_COMMAND } from "../brand.js";
 import { config } from "../config.js";
 import { healthHandler } from "../health.js";
 import { log } from "../logger.js";
+import { webRoutes } from "../web/routes.js";
 import { registerAttendanceEvents } from "./attendanceEvents.js";
 import { registerCommands } from "./commands.js";
 import { registerEvents } from "./events.js";
@@ -65,10 +66,12 @@ export function createApp(): App {
     stateSecret: cfg.SLACK_STATE_SECRET,
     scopes: BOT_SCOPES,
     installationStore,
-    // Bolt owns the HTTP server, so the container's health endpoint has to be
+    // Bolt owns the HTTP server, so the container's health endpoint and the
+    // web pages (landing + configuration; see web/routes.ts) have to be
     // registered through it rather than served alongside.
     customRoutes: [
       { path: "/health", method: ["GET"], handler: healthHandler },
+      ...webRoutes(),
     ],
     redirectUri: `${cfg.PUBLIC_URL}/slack/oauth_redirect`,
     installerOptions: {

@@ -59,6 +59,15 @@ src/slack/commands.ts   the slash-command router
 src/slack/events.ts     app_home_opened, app_mention, app_uninstalled
 src/slack/authz.ts      "is this person a workspace admin", cached 5 minutes
 src/slack/home.ts       the App Home view, rendered from the command registry
+src/slack/settingsWrite.ts
+                        the one write path for settings, shared by the config
+                        command and the web configuration page
+src/web/routes.ts       the web surface at bot.<domain>: a landing page, and a
+                        configuration page behind Sign in with Slack (OIDC,
+                        identity only — see ADR-0015) plus the HawkBot Admin
+                        check
+src/web/session.ts      stateless HMAC-signed session cookies; pure, tested
+src/web/pages.ts        HTML rendering; pure, tested
 ```
 
 ### The command registry is the extension point
@@ -111,9 +120,14 @@ nothing in the suite — Caddy fronts it.
 
 ## Rules that are load-bearing
 
-1. **No user scopes.** Ever. This app is in a workspace shared with minors and
-   its defensibility rests on being unable to read anything a person could not
-   see it read. Adding a user scope changes what this app _is_.
+1. **No user token scopes.** Ever. This app is in a workspace shared with
+   minors and its defensibility rests on being unable to read anything a
+   person could not see it read. Adding a scope that reads or acts as a
+   person changes what this app _is_. The one deliberate exception: the
+   OpenID Connect identity scopes (`openid`, `profile`) behind the web
+   configuration page's Sign in with Slack, which answer "who is this
+   person" and grant nothing else — the token is used for that single
+   lookup and discarded, never stored. See ADR-0015.
 2. **Never log message text or a token.** `logger.ts` writes JSON to stderr and
    that is not an auditable place.
 3. **Migrations that have shipped are never edited.** Add another file.
@@ -122,7 +136,9 @@ nothing in the suite — Caddy fronts it.
    `domain/settings.ts`. Nothing team-specific is ever baked into the image.
 5. **Keep `BOT_SCOPES` and `docs/slack-app-manifest.yaml` identical.** Slack
    grants what the manifest says; Bolt asks for what the code says. When they
-   disagree the symptom is a command that silently does nothing.
+   disagree the symptom is a command that silently does nothing. The same
+   goes for the manifest's OIDC user scopes and `OIDC_SCOPES` in
+   `src/web/routes.ts`, and for the `/auth/slack/callback` redirect URL.
 6. **`.env.example` documents every variable `config.ts` reads.** A missing one
    reads as "the feature is off".
 

@@ -1,9 +1,13 @@
 import type { WebClient } from "@slack/web-api";
 import { SLASH_COMMAND } from "../brand.js";
-import { clearSetting, getSetting, setSetting } from "../db/repo.js";
+import { getSetting } from "../db/repo.js";
 import { formatResolvedValue } from "../domain/configDisplay.js";
-import { SETTINGS, checkSetting, findSetting } from "../domain/settings.js";
+import { SETTINGS } from "../domain/settings.js";
 import { resolveName } from "../slack/nameResolution.js";
+import {
+  applySettingInput,
+  applySettingUnset,
+} from "../slack/settingsWrite.js";
 import type { Command } from "./types.js";
 
 async function describeCurrentValue(
@@ -56,16 +60,12 @@ export const config: Command = {
           text: `Usage: \`${SLASH_COMMAND} config unset <key>\``,
         };
       }
-      const setting = findSetting(key);
-      if (!setting) {
-        const known = SETTINGS.map((s) => s.key).join(", ");
-        return { text: `Unknown setting \`${key}\`. Known: ${known}` };
-      }
-      const removed = clearSetting(setting.key);
+      const outcome = applySettingUnset(key);
+      if (!outcome.ok) return { text: outcome.reason };
       return {
-        text: removed
-          ? `Unset \`${setting.key}\`.`
-          : `\`${setting.key}\` was already unset.`,
+        text: outcome.removed
+          ? `Unset \`${outcome.key}\`.`
+          : `\`${outcome.key}\` was already unset.`,
       };
     }
 
@@ -81,33 +81,20 @@ export const config: Command = {
       };
     }
 
-    const checked = checkSetting(key, valueParts.join(" "));
-    if (!checked.ok) return { text: checked.reason };
-
-    // All three usergroup settings are set by handle, but membership checks
-    // need the Slack-internal group id — resolved here, once, rather than on
-    // every check. See CONTEXT.md, HawkBot Admin.
-    if (
-      checked.key === "admin_usergroup" ||
-      checked.key === "student_usergroup" ||
-      checked.key === "mentor_usergroup"
-    ) {
-      const groups = await ctx.client.usergroups.list({});
-      const match = groups.usergroups?.find(
-        (g) => g.handle?.toLowerCase() === checked.value.toLowerCase()
-      );
-      if (!match?.id) {
-        return {
-          text: `No Slack User Group found with handle \`${checked.value}\`. Check the handle and try again.`,
-        };
-      }
-      setSetting(checked.key, match.id, ctx.userId);
+    // Validation and the usergroup handle→id resolution live in
+    // slack/settingsWrite.ts, shared with the web configuration page.
+    const outcome = await applySettingInput(
+      ctx.client,
+      key,
+      valueParts.join(" "),
+      ctx.userId
+    );
+    if (!outcome.ok) return { text: outcome.reason };
+    if (outcome.groupHandle) {
       return {
-        text: `Set \`${checked.key}\` to the group \`@${checked.value}\` (\`${match.id}\`).`,
+        text: `Set \`${outcome.key}\` to the group \`@${outcome.groupHandle}\` (\`${outcome.storedValue}\`).`,
       };
     }
-
-    setSetting(checked.key, checked.value, ctx.userId);
-    return { text: `Set \`${checked.key}\` to \`${checked.value}\`.` };
+    return { text: `Set \`${outcome.key}\` to \`${outcome.storedValue}\`.` };
   },
 };
