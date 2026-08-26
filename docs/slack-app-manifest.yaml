@@ -24,7 +24,12 @@ features:
     always_online: true
   app_home:
     home_tab_enabled: true
-    messages_tab_enabled: false
+    # Bot-initiated DMs only (the late nudge, the season CSV export, admin
+    # reaction-seed alerts — see commands/report.ts, slack/attendanceEvents.ts,
+    # slack/checkin.ts) never render for the recipient with this off, no
+    # matter what scopes are granted. read_only keeps it one-way: Hawk Bot
+    # never reads a reply, consistent with "no reading DMs" in CLAUDE.md.
+    messages_tab_enabled: true
     messages_tab_read_only_enabled: true
   slash_commands:
     - command: /hawkbot
