@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "name": "hawk-bot",
+  "image": "ghcr.io/frc2713/hawk-bot",
+  "port": 3000,
+  "health": "/health",
+  "database": "hawk-bot.db",
+  "data_dir": "/data",
+  "required_env": [
+    "SLACK_SIGNING_SECRET",
+    "SLACK_CLIENT_ID",
+    "SLACK_CLIENT_SECRET",
+    "SLACK_STATE_SECRET",
+    "PUBLIC_URL",
+    "TOKEN_ENCRYPTION_KEY",
+    "GOOGLE_SERVICE_ACCOUNT_KEY_BASE64"
+  ],
+  "optional_env": ["DATA_DIR", "PORT", "TZ"],
+  "migrations": "on-start",
+  "rollback": "requires-schema-review"
+}

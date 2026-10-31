@@ -35,6 +35,9 @@ RUN npm run build
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 
+ARG APP_REVISION=development
+ENV APP_REVISION=${APP_REVISION}
+LABEL org.opencontainers.image.revision=${APP_REVISION}
 ENV NODE_ENV=production
 ENV PORT=3000
 # The single durable location: the SQLite database, and nothing else.
@@ -51,6 +54,9 @@ COPY --chown=hawkbot:nodejs package.json ./
 COPY --chown=hawkbot:nodejs migrations ./migrations
 
 RUN mkdir -p /data && chown -R hawkbot:nodejs /data
+
+COPY .hawk/app.json ./.hawk/app.json
+COPY scripts/deploy-check.mjs ./scripts/deploy-check.mjs
 
 USER hawkbot
 VOLUME ["/data"]

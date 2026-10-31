@@ -153,3 +153,13 @@ GitHub Issues on `frc2713/hawk-bot`, via the `gh` CLI. See
 
 Single-context: `CONTEXT.md` + `docs/adr/` at the repo root, once they exist.
 See `docs/agents/domain.md`.
+
+## Release contract
+
+Read `docs/release-pipeline.md` when changing image publication or deployment
+configuration. Publishing calls reusable CI, smoke-tests fresh and prior-release
+databases, then publishes the tested image by digest and proposes a suite PR.
+Keep `.hawk/app.json` synchronized with environment, health and storage changes.
+`node scripts/deploy-check.mjs` validates the built image configuration without
+opening SQLite or starting external clients. Production promotion belongs in
+hawk_suite and retains a separate approval.
