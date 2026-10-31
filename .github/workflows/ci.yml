@@ -23,3 +23,24 @@ jobs:
       - run: npm run format:check
       - run: npm test
       - run: npm run build
+  container:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          tags: hawk-candidate:pr
+          build-args: APP_REVISION=${{ github.sha }}
+      - name: Verify fresh startup and prior-release upgrade
+        env:
+          IMAGE: hawk-candidate:pr
+          BASELINE_IMAGE: ghcr.io/frc2713/hawk-bot:latest
+        run: |
+          bash scripts/smoke-image.sh
+          bash scripts/smoke-upgrade.sh
