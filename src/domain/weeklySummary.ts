@@ -136,6 +136,13 @@ export type WeeklySummaryEventInfo = {
   location: string;
   /** The Event's own `htmlLink`, if any — see domain/calendar.ts's MappedEvent. */
   calendarLink: string | null;
+  /**
+   * Where this Event's Check-in Post is (or will be) when that is not the
+   * announcements channel — an FTC Event. Rendered as a channel link, which
+   * doesn't ping anyone. Unset for everything else, and for a struck-through
+   * snapshot line, which is history rather than a place to check in.
+   */
+  checkinChannel?: string | undefined;
 };
 
 export const DATE_FMT: Intl.DateTimeFormatOptions = {
@@ -171,6 +178,7 @@ function linkedTitle(info: WeeklySummaryEventInfo): string {
 export function formatWeeklySummaryLine(info: WeeklySummaryEventInfo): string {
   const parts = [linkedTitle(info), formatWhen(info)];
   if (info.location) parts.push(`📍 ${info.location}`);
+  if (info.checkinChannel) parts.push(`check in: <#${info.checkinChannel}>`);
   return parts.join(" — ");
 }
 

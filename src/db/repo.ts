@@ -1,4 +1,5 @@
 import { decrypt, encrypt } from "../crypto.js";
+import { resolveFtcRouting, type FtcRouting } from "../domain/ftc.js";
 import type { SettingKey } from "../domain/settings.js";
 import { db } from "./client.js";
 
@@ -109,6 +110,30 @@ export function getSetting(key: SettingKey): string | undefined {
       "SELECT value FROM settings WHERE key = ?"
     )
     .get(key)?.value;
+}
+
+/** The three settings that decide where a Check-in Post goes. */
+export function getCheckinRoutingSettings(): {
+  announceChannel: string | undefined;
+  ftcMarker: string | undefined;
+  ftcChannel: string | undefined;
+} {
+  return {
+    announceChannel: getSetting("announce_channel"),
+    ftcMarker: getSetting("ftc_event_marker"),
+    ftcChannel: getSetting("ftc_channel"),
+  };
+}
+
+/**
+ * FTC routing as configured, or `undefined` when it is off. One read for
+ * every caller, so none of them can disagree about what "on" means.
+ */
+export function getFtcRouting(): FtcRouting | undefined {
+  return resolveFtcRouting({
+    marker: getSetting("ftc_event_marker"),
+    channel: getSetting("ftc_channel"),
+  });
 }
 
 export function setSetting(
@@ -616,10 +641,18 @@ export type RecentOutcomeRow = {
  */
 export function getRecentOutcomesForUser(
   userId: string,
-  limit: number
+  limit: number,
+  /**
+   * Skip Events whose Check-in Post is in this channel — the FTC channel, so
+   * an FTC meeting a student never saw isn't counted as a No Response. A
+   * channel rather than "must be in announce_channel" so changing the
+   * announcements channel later doesn't erase history. Null-safe: an Event
+   * with no post yet is kept.
+   */
+  excludeChannel?: string
 ): RecentOutcomeRow[] {
   return db()
-    .prepare<[string, number], RecentOutcomeRow>(
+    .prepare<[string, string | null, string | null, number], RecentOutcomeRow>(
       `SELECT e.title, e.starts_at, a.status
        FROM events e
        JOIN event_roster r ON r.event_id = e.id AND r.user_id = ?
@@ -627,10 +660,11 @@ export function getRecentOutcomesForUser(
        WHERE ${COUNTABLE_EVENT_WHERE}
          AND e.calendar_role = 'team_meeting'
          AND e.multiday_parent_id IS NULL
+         AND (? IS NULL OR e.checkin_channel IS NULL OR e.checkin_channel != ?)
        ORDER BY e.starts_at DESC
        LIMIT ?`
     )
-    .all(userId, limit);
+    .all(userId, excludeChannel ?? null, excludeChannel ?? null, limit);
 }
 
 /* --------------------------------------------------------- weekly summary */

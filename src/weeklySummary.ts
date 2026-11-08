@@ -14,7 +14,9 @@ import {
   type WeeklySummaryEventInfo,
   type WeeklySummaryLineEntry,
 } from "./domain/weeklySummary.js";
+import { checkinPointer } from "./domain/ftc.js";
 import {
+  getCheckinRoutingSettings,
   getEvent,
   getMostRecentWeeklySummary,
   getSetting,
@@ -41,7 +43,8 @@ import {
 } from "./slack/weeklySummary.js";
 
 export function toWeeklySummaryEventInfo(
-  row: EventRow
+  row: EventRow,
+  routingSettings = getCheckinRoutingSettings()
 ): WeeklySummaryEventInfo {
   return {
     title: row.title,
@@ -50,6 +53,14 @@ export function toWeeklySummaryEventInfo(
     endsAt: new Date(row.ends_at),
     location: row.location,
     calendarLink: row.calendar_link,
+    checkinChannel: checkinPointer(
+      {
+        title: row.title,
+        calendarRole: row.calendar_role,
+        checkinChannel: row.checkin_channel,
+      },
+      routingSettings
+    ),
   };
 }
 
@@ -138,6 +149,7 @@ function buildEntriesFromItems(
   items: readonly SummaryItemRow[]
 ): WeeklySummaryLineEntry[] {
   const entries: WeeklySummaryLineEntry[] = [];
+  const routingSettings = getCheckinRoutingSettings();
   for (const item of items) {
     // Fetched even when already `removed` — the row (and its
     // `calendar_link`) still exists, only `removed_at` gets set.
@@ -156,7 +168,7 @@ function buildEntriesFromItems(
     }
     const event = liveEvent;
 
-    const currentInfo = toWeeklySummaryEventInfo(event);
+    const currentInfo = toWeeklySummaryEventInfo(event, routingSettings);
     if (item.added_mid_week) {
       // No "original" to contrast a mid-week addition against — always
       // show its current details, still tagged, for the rest of the week.
