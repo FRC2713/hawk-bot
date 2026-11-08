@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { lockedCheckinMessageText } from "../src/slack/checkin.js";
+import type { WebClient } from "@slack/web-api";
+import {
+  announceEventEdited,
+  lockedCheckinMessageText,
+} from "../src/slack/checkin.js";
 import type { EventRow } from "../src/db/repo.js";
 
 process.env.TZ = "UTC";
@@ -80,4 +84,47 @@ test("the locked message links the title when the Event has a calendar link", ()
 test("the locked message shows a plain bolded title when there's no calendar link", () => {
   const text = lockedCheckinMessageText(baseEvent);
   assert.match(text, /^✅ \*Team Meeting\* — attendance closed/);
+});
+
+test("the locked message renders an HTML description as Slack text (#60)", () => {
+  const text = lockedCheckinMessageText({
+    ...baseEvent,
+    description:
+      '<a href="https://www.frc319.com/register">https://www.frc319.com/register</a>',
+  });
+  assert.match(text, /\n<https:\/\/www\.frc319\.com\/register>$/);
+  assert.doesNotMatch(text, /<a href/);
+});
+
+test("the locked message drops a description that is only markup", () => {
+  const text = lockedCheckinMessageText({ ...baseEvent, description: "<br>" });
+  assert.equal(text.split("\n").length, 3);
+});
+
+test("an edited-event reply shows a converted, struck-through description diff", async () => {
+  const posted: { text: string }[] = [];
+  const client = {
+    chat: {
+      postMessage: async (args: { text: string }) => {
+        posted.push(args);
+        return {};
+      },
+      update: async () => ({}),
+    },
+  } as unknown as WebClient;
+
+  await announceEventEdited(
+    client,
+    { ...baseEvent, description: "Old<br>plan" },
+    {
+      ...baseEvent,
+      description: '<a href="https://example.com">Sign up</a>',
+    },
+    ["description"]
+  );
+
+  assert.match(
+    posted[0]?.text ?? "",
+    /~Old~\n~plan~ → <https:\/\/example\.com\|Sign up>/
+  );
 });
