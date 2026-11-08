@@ -15,7 +15,14 @@
     "TOKEN_ENCRYPTION_KEY",
     "GOOGLE_SERVICE_ACCOUNT_KEY_BASE64"
   ],
-  "optional_env": ["DATA_DIR", "PORT", "TZ"],
+  "optional_env": [
+    "DATA_DIR",
+    "PORT",
+    "TZ",
+    "HAWK_SUITE_ISSUER",
+    "HAWK_SUITE_PUBLIC_KEY",
+    "HAWK_SUITE_AUDIENCE"
+  ],
   "migrations": "on-start",
   "rollback": "requires-schema-review"
 }

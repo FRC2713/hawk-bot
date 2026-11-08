@@ -89,28 +89,61 @@ permission to read anyone's messages on their behalf.</p>
   );
 }
 
-/** Shown at /config when there is no (valid) session yet. */
-export function signInPage(): string {
+/**
+ * Shown at /config when there is no (valid) session yet.
+ *
+ * Behind hawk_suite's gateway the portal is the door that matters: signing in
+ * there sets the domain-wide session this app accepts (web/suiteSession.ts),
+ * and it is also the only door the gateway itself will let a browser reach.
+ * Hawk Bot's own Sign in with Slack stays offered below it, because this page
+ * is terminal — if the portal round-trip fails, a mentor should not be left
+ * on a page with no other way forward.
+ */
+export function signInPage(suitePortalUrl?: string): string {
+  const own = `<a class="signin" href="/auth/slack">Sign in with Slack</a>`;
+  const doors = suitePortalUrl
+    ? `<p><a class="signin" href="${escapeHtml(suitePortalUrl)}">Sign in with
+Hawk Suite</a></p>
+<p class="muted">Already signed in to another Hawk app? Reload this page — the
+suite's sign-in covers all of them. Otherwise ${own} works too.</p>`
+    : `<p>${own}</p>`;
   return layout(
     `Sign in — ${APP_NAME}`,
     `${header("Configuration")}
 <p>Workspace settings live behind Slack sign-in, and changing them is limited
 to HawkBot Admins.</p>
-<p><a class="signin" href="/auth/slack">Sign in with Slack</a></p>
+${doors}
 <p class="muted">Signing in only tells ${escapeHtml(APP_NAME)} who you are.
 It grants no access to your messages, and no token is kept.</p>`
   );
 }
 
 /** Signed in fine, but not a HawkBot Admin. */
-export function forbiddenPage(name: string): string {
+export function forbiddenPage(name: string, signOut?: SignOut): string {
   return layout(
     `Not authorized — ${APP_NAME}`,
     `${header("Not authorized")}
 <p>You're signed in as <strong>${escapeHtml(name)}</strong>, but changing
 workspace settings needs HawkBot Admin: membership in the admin User Group
 (or being a workspace Owner). Ask a coach to add you, then reload.</p>
-${signOutForm()}`
+${signOutControl(signOut)}`
+  );
+}
+
+/**
+ * Signed in — possibly by hawk_suite's gateway — to a Slack workspace this app
+ * is not installed in. Terminal on purpose: the session that just failed was
+ * issued by the very place a "sign in again" link would send the browser, so
+ * offering one is a loop with no exit.
+ */
+export function wrongWorkspacePage(name: string, signOut?: SignOut): string {
+  return layout(
+    `Wrong workspace — ${APP_NAME}`,
+    `${header("Wrong workspace")}
+<p>You're signed in as <strong>${escapeHtml(name)}</strong>, but that Slack
+account is not in the workspace ${escapeHtml(APP_NAME)} is installed in, so
+there is nothing here for it to configure.</p>
+${signOutControl(signOut)}`
   );
 }
 
@@ -134,7 +167,21 @@ export function errorPage(message: string): string {
   );
 }
 
-function signOutForm(): string {
+/**
+ * Which session actually holds this person — and so which one "sign out" can
+ * end. Hawk Bot cannot clear hawk_suite's cookie: it is scoped to the whole
+ * domain and carries the other apps' sessions too, so clearing only our own
+ * while the gateway's still stands would make sign-out a no-op — one reload
+ * and they are back in. The gateway's own logout is offered instead.
+ */
+export type SignOut = { kind: "own" } | { kind: "suite"; href: string };
+
+function signOutControl(signOut: SignOut = { kind: "own" }): string {
+  if (signOut.kind === "suite") {
+    return `<p><a href="${escapeHtml(signOut.href)}">Sign out of Hawk
+Suite</a> <span class="muted">— ends your sign-in for every Hawk app.</span></p>`;
+  }
+  // A POST, so the Origin check in web/routes.ts can refuse a cross-site one.
   return `<form class="inline" method="post" action="/auth/sign-out">
 <button class="subtle" type="submit">Sign out</button>
 </form>`;
@@ -159,6 +206,8 @@ export type Flash = { kind: "ok" | "err"; text: string };
 export function configPage(args: {
   settings: readonly SettingView[];
   signedInAs: string;
+  /** Whichever session holds this person; hawk-bot's own when omitted. */
+  signOut?: SignOut;
   flash?: Flash;
 }): string {
   const flash = args.flash
@@ -197,7 +246,7 @@ ${
     `${header("Configuration")}
 <div class="topbar">
 <p class="muted">Signed in as <strong>${escapeHtml(args.signedInAs)}</strong></p>
-${signOutForm()}
+${signOutControl(args.signOut)}
 </div>
 ${flash}
 <p>The same settings as <code>${escapeHtml(SLASH_COMMAND)} config</code>, with
