@@ -16,6 +16,10 @@ Two other calendars the team keeps, each independently enabled by a HawkBot Admi
 **Calendar Role**:
 Which of the team's three Google Calendars an Event came from — `team_meeting`, `informational`, or `mentor` — fixed at the moment the Event is first synced, never reassigned. The one gate for whether an Event gets an Event Check-in Post and Attendance Tracking at all: only `team_meeting` does, regardless of Meeting Type. An Informational or Mentor/Teacher Event still gets a Meeting Type (for line formatting) and still participates in calendar sync's add/edit/remove detection — it's simply never eligible for a Check-in Post. See ADR-0006 for why all three calendars store Events in one place rather than three.
 
+**FTC Event**:
+A Team Meeting Calendar Event whose title _starts with_ the admin-set FTC marker (the team uses 🟧) — an FTC-only meeting that mentors still want on the one calendar showing everyone's time in the building. Its only difference from any other Team Meeting Event is where its Event Check-in Post goes: the FTC channel, so FRC-only students aren't asked to check in to it and the announcements channel stays actionable for everyone. Attendance, hours and the Season totals are combined with FRC's, and the Roster is simply the FTC channel's membership; the Weekly Summary Post still lists it, with the marker as its tag. A joint FRC-and-FTC meeting may carry the marker elsewhere in its title as a tag, but must not lead with it — it is an ordinary Team Meeting Event, checked in to the announcements channel. Only active when both the marker and the FTC channel are set. Decided when the Check-in Post is sent — adding or removing the marker later doesn't move a post already out. Not a Calendar Role: it is a property of the title, not of which calendar the Event came from. See ADR-0016.
+_Avoid_: "FTC calendar" as a source — the team keeps one in Google Calendar and invites the Team Meeting Calendar onto its events, but Hawk Bot reads only the Team Meeting Calendar
+
 **Meeting Type**:
 Classifies an Event by its time shape, and determines the Check-in Post timing rule applied to it. Derived directly from the calendar entry's own start/end, not chosen separately:
 
@@ -29,7 +33,7 @@ A synthetic, ordinary All-Day Event that Hawk Bot generates automatically for ea
 _Avoid_: "sub-event", "day instance" (suggests calendar recurrence, which this isn't)
 
 **Event Check-in Post**:
-The single Slack message posted before an Event that both reminds the team of it and serves as the surface people react to for attendance. Includes the Event's title, date/time, location, description, and a short reminder of what each reaction means. Posted to the announcements channel with an `@channel` mention. The bot pre-populates it with 👍, a Clock Reaction, and ❌ so a team member can just click an existing reaction rather than pick their own emoji from scratch; picking something else entirely still works and is read the same way. At the Reaction Cutoff, which finalizes attendance for that Event, the bot locks the post rather than deleting it — see Reaction Cutoff and ADR-0013.
+The single Slack message posted before an Event that both reminds the team of it and serves as the surface people react to for attendance. Includes the Event's title, date/time, location, description, and a short reminder of what each reaction means. Posted to the announcements channel with an `@channel` mention — or, for an FTC Event, to the FTC channel instead. The bot pre-populates it with 👍, a Clock Reaction, and ❌ so a team member can just click an existing reaction rather than pick their own emoji from scratch; picking something else entirely still works and is read the same way. At the Reaction Cutoff, which finalizes attendance for that Event, the bot locks the post rather than deleting it — see Reaction Cutoff and ADR-0013.
 _Avoid_: pre-event reminder post, check-in post (as if separate from the reminder)
 
 **Check-in Post Timing**:
@@ -55,7 +59,7 @@ Any clock-face, alarm-clock, or stopwatch emoji reaction on an Event Check-in Po
 An optional free-text detail a team member adds by replying in the thread on the Event Check-in Post — e.g. an expected arrival time alongside a Clock Reaction, or a reason alongside a Not Attending reaction. The bot never prompts for it; a thread reply during the reaction window is captured if one shows up, and it's fine if it doesn't.
 
 **Roster**:
-The set of people an Event expects a response from. Currently defined as the announcements channel's membership list at the moment the Event Check-in Post is sent — there is no maintained team list yet. This is a known interim definition; it's expected to be replaced by an explicit external list of students and mentors.
+The set of people an Event expects a response from. Currently defined as the membership list of the channel the Event Check-in Post goes to (the announcements channel, or the FTC channel for an FTC Event), at the moment it is sent — there is no maintained team list yet. This is a known interim definition; it's expected to be replaced by an explicit external list of students and mentors.
 
 **Season**:
 The reporting window "attendance %" and hours-credited figures default to. Fixed at July 1 through the following June 30 for now, not admin-configurable — a known interim rule, expected to become adjustable later. "This season" means the most recent July 1 up to now.
