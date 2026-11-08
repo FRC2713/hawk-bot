@@ -1,6 +1,10 @@
 import type { WebClient } from "@slack/web-api";
 import type { EventRow } from "../db/repo.js";
 import { formatEventWhen, type MeetingType } from "../domain/attendance.js";
+import {
+  DESCRIPTION_DIFF_MAX_CHARS,
+  descriptionToSlack,
+} from "../domain/slackText.js";
 import { log } from "../logger.js";
 import { listHawkBotAdmins } from "./authz.js";
 import {
@@ -46,7 +50,10 @@ const REACTION_LEGEND = [
 function meetingDetailBodyLines(event: EventRow): string[] {
   const lines = [formatEventTime(event)];
   if (event.location) lines.push(`📍 ${event.location}`);
-  if (event.description) lines.push(event.description);
+  const description = descriptionToSlack(event.description, {
+    moreUrl: event.calendar_link,
+  });
+  if (description) lines.push(description);
   return lines;
 }
 
@@ -223,8 +230,12 @@ function changedDetailLines(
     );
   }
   if (changedFields.includes("description")) {
+    const shown = (description: string) =>
+      descriptionToSlack(description, {
+        maxChars: DESCRIPTION_DIFF_MAX_CHARS,
+      }) || "(none)";
     lines.push(
-      `~${previous.description || "(none)"}~ → ${current.description || "(none)"}`
+      `${strikethroughLines(shown(previous.description))} → ${shown(current.description)}`
     );
   }
   return lines;
