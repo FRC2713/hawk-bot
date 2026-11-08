@@ -14,11 +14,14 @@ permissions:
 jobs:
   verify:
     uses: ./.github/workflows/ci.yml
+  # GitHub checks both calls against every job in publish-app.yml, so both
+  # allow packages: write. Each job there narrows its own token; only the push
+  # stage can write.
   build:
     uses: FRC2713/hawk_suite/.github/workflows/publish-app.yml@main
     permissions:
       contents: read
-      packages: read
+      packages: write
     with:
       app: hawk-bot
       stage: build
@@ -26,6 +29,7 @@ jobs:
     needs: [verify, build]
     uses: FRC2713/hawk_suite/.github/workflows/publish-app.yml@main
     permissions:
+      contents: read
       packages: write
     with:
       app: hawk-bot
