@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  chooseWebSession,
   parseCookies,
   serializeCookie,
   signSession,
   signState,
   verifySession,
   verifyState,
+  type SessionCandidate,
   type WebSession,
 } from "../src/web/session.js";
 
@@ -103,5 +105,65 @@ describe("cookies", () => {
       serializeCookie("hb_session", "", { maxAgeSeconds: 0, secure: false }),
       "hb_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
     );
+  });
+});
+
+describe("choosing between the two doors", () => {
+  const installed = "T0123456789";
+  const own: SessionCandidate = {
+    identity: { userId: "UOWN", teamId: installed, name: "Ty" },
+    viaSuite: false,
+  };
+  const suite: SessionCandidate = {
+    identity: { userId: "USUITE", teamId: installed, name: "Ty via Suite" },
+    viaSuite: true,
+  };
+  const foreign = (viaSuite: boolean): SessionCandidate => ({
+    identity: { userId: "UELSE", teamId: "TOTHER", name: "Someone Else" },
+    viaSuite,
+  });
+
+  it("offers sign-in when no session verified at all", () => {
+    assert.deepEqual(chooseWebSession([], installed), { kind: "sign-in" });
+  });
+
+  it("uses hawk-bot's own session when it is the only one", () => {
+    assert.deepEqual(chooseWebSession([own], installed), {
+      kind: "use",
+      identity: own.identity,
+      viaSuite: false,
+    });
+  });
+
+  it("prefers the gateway's session when both are valid", () => {
+    // Caller order is the preference, and routes.ts passes the gateway first:
+    // it is the shorter-lived cookie and the one whose sign-out link works.
+    assert.deepEqual(chooseWebSession([suite, own], installed), {
+      kind: "use",
+      identity: suite.identity,
+      viaSuite: true,
+    });
+  });
+
+  it("falls through to a usable session when the preferred one is foreign", () => {
+    // Each cookie is judged against the installed team on its own: the
+    // gateway's configuration is the gateway's, not hawk-bot's.
+    assert.deepEqual(chooseWebSession([foreign(true), own], installed), {
+      kind: "use",
+      identity: own.identity,
+      viaSuite: false,
+    });
+  });
+
+  it("is terminal — never sign-in — when every session is foreign", () => {
+    // The gateway issued the cookie that just failed, so a bounce back there
+    // would loop with no exit.
+    const choice = chooseWebSession([foreign(true), foreign(false)], installed);
+    assert.equal(choice.kind, "wrong-workspace");
+    assert.equal(
+      choice.kind === "wrong-workspace" && choice.identity.name,
+      "Someone Else"
+    );
+    assert.equal(choice.kind === "wrong-workspace" && choice.viaSuite, true);
   });
 });

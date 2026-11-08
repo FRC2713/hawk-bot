@@ -20,18 +20,28 @@ import {
   landingPage,
   notInstalledPage,
   signInPage,
+  wrongWorkspacePage,
   type Flash,
   type SettingView,
+  type SignOut,
 } from "./pages.js";
 import {
+  chooseWebSession,
   parseCookies,
   serializeCookie,
   signSession,
   signState,
   verifySession,
   verifyState,
+  type SessionCandidate,
+  type WebIdentity,
   type WebSession,
 } from "./session.js";
+import {
+  suitePublicKey,
+  SUITE_COOKIE,
+  verifySuiteToken,
+} from "./suiteSession.js";
 
 /**
  * The web surface behind `bot.<domain>`: a landing page, and a configuration
@@ -44,6 +54,16 @@ import {
  * call, and is never stored or logged. What a signed-in person may *do* is
  * then decided by the same HawkBot Admin check every admin command goes
  * through (slack/authz.ts). See ADR-0015.
+ *
+ * Two doors, one lock. Behind hawk_suite's gateway the browser already carries
+ * a Slack session the gateway signed, and asking a mentor to Sign in with Slack
+ * a second time to reach the same page is a wart, not security — so a verified
+ * `AUTHP_ACCESS_TOKEN` is accepted here as identity as well (suiteSession.ts).
+ * It answers only "who is asking": `isHawkBotAdmin()` still runs on every
+ * request, so suite membership grants nothing by itself. Hawk Bot's own
+ * sign-in is unchanged, and is the only door when the gateway is not
+ * configured — which is every local run. See CLAUDE.md, "A second door to
+ * the same lock".
  *
  * CSRF: session cookies are SameSite=Lax, and every state-changing POST also
  * requires an Origin header matching PUBLIC_URL.
@@ -98,19 +118,90 @@ function installedWorkspace():
   return { client: new WebClient(token), teamId: installation.teamId };
 }
 
+/** Whether hawk-bot runs behind hawk_suite's sign-in gateway. */
+function suiteGateway():
+  { issuer: string; audience: string; key: string } | undefined {
+  const cfg = config();
+  return cfg.HAWK_SUITE_ISSUER && cfg.HAWK_SUITE_PUBLIC_KEY
+    ? {
+        issuer: cfg.HAWK_SUITE_ISSUER,
+        audience: cfg.HAWK_SUITE_AUDIENCE,
+        key: cfg.HAWK_SUITE_PUBLIC_KEY,
+      }
+    : undefined;
+}
+
+/** The suite portal a browser signs in at, when there is one. */
+function suitePortalUrl(): string | undefined {
+  const gateway = suiteGateway();
+  return gateway ? new URL("auth/", gateway.issuer).href : undefined;
+}
+
+/**
+ * Who the gateway says is asking, verified against its public key — never a
+ * proxy header, because hawk-bot is reachable directly on the Docker network
+ * where no header is honest. The gateway's `name` claim is optional and
+ * display-only; the Slack user id stands in when it is absent, exactly as it
+ * does for an OIDC sign-in with no profile name.
+ */
+function suiteIdentity(req: IncomingMessage): WebIdentity | undefined {
+  const gateway = suiteGateway();
+  if (!gateway) return undefined;
+  const token = parseCookies(req.headers.cookie).get(SUITE_COOKIE);
+  if (!token) return undefined;
+  const verified = verifySuiteToken(
+    token,
+    {
+      issuer: gateway.issuer,
+      audience: gateway.audience,
+      // Parsed and cached at config() time, so this cannot throw here.
+      key: suitePublicKey(gateway.key),
+    },
+    Date.now()
+  );
+  if (!verified) return undefined;
+  return {
+    userId: verified.userId,
+    teamId: verified.teamId,
+    name: verified.name ?? verified.userId,
+  };
+}
+
+/**
+ * The caller, and which door they came through — "sign out" has to point at
+ * whichever session actually holds them.
+ */
+type Caller = { identity: WebIdentity; viaSuite: boolean };
+
+/** Only the session holding this person can end it; see pages.ts, SignOut. */
+function signOutTarget(caller: Caller): SignOut {
+  const gateway = suiteGateway();
+  return caller.viaSuite && gateway
+    ? { kind: "suite", href: new URL("auth/logout", gateway.issuer).href }
+    : { kind: "own" };
+}
+
 /**
  * The session-and-authorization gate in front of the configuration page and
  * both of its POSTs. Writes the appropriate page and returns undefined when
- * the caller should stop; the session's team must be the installed team, so
- * a sign-in from some other Slack workspace proves nothing here.
+ * the caller should stop; whichever door a session came through, its team must
+ * be the installed team, so a sign-in from some other Slack workspace proves
+ * nothing here (chooseWebSession decides, and is tested).
  */
 async function requireAdmin(
   req: IncomingMessage,
   res: ServerResponse
-): Promise<{ session: WebSession; client: WebClient } | undefined> {
-  const session = currentSession(req);
-  if (!session) {
-    sendHtml(res, 200, signInPage());
+): Promise<{ caller: Caller; client: WebClient } | undefined> {
+  const candidates: SessionCandidate[] = [];
+  // The gateway's first: it is the shorter-lived cookie, and the one whose
+  // sign-out link actually ends the session it holds.
+  const fromSuite = suiteIdentity(req);
+  if (fromSuite) candidates.push({ identity: fromSuite, viaSuite: true });
+  const own = currentSession(req);
+  if (own) candidates.push({ identity: own, viaSuite: false });
+
+  if (candidates.length === 0) {
+    sendHtml(res, 200, signInPage(suitePortalUrl()));
     return undefined;
   }
   const installed = installedWorkspace();
@@ -118,15 +209,36 @@ async function requireAdmin(
     sendHtml(res, 200, notInstalledPage());
     return undefined;
   }
-  if (session.teamId !== installed.teamId) {
-    sendHtml(res, 403, forbiddenPage(session.name));
+
+  const choice = chooseWebSession(candidates, installed.teamId);
+  // `sign-in` only comes back for an empty candidate list, which the check
+  // above already answered; handled anyway so the union stays exhaustive here
+  // rather than relying on that from a distance.
+  if (choice.kind === "sign-in") {
+    sendHtml(res, 200, signInPage(suitePortalUrl()));
     return undefined;
   }
-  if (!(await isHawkBotAdmin(installed.client, session.userId))) {
-    sendHtml(res, 403, forbiddenPage(session.name));
+  const caller: Caller = {
+    identity: choice.identity,
+    viaSuite: choice.viaSuite,
+  };
+  if (choice.kind === "wrong-workspace") {
+    sendHtml(
+      res,
+      403,
+      wrongWorkspacePage(choice.identity.name, signOutTarget(caller))
+    );
     return undefined;
   }
-  return { session, client: installed.client };
+  if (!(await isHawkBotAdmin(installed.client, choice.identity.userId))) {
+    sendHtml(
+      res,
+      403,
+      forbiddenPage(choice.identity.name, signOutTarget(caller))
+    );
+    return undefined;
+  }
+  return { caller, client: installed.client };
 }
 
 /**
@@ -218,7 +330,8 @@ async function handleConfigPage(
     200,
     configPage({
       settings,
-      signedInAs: authed.session.name,
+      signedInAs: authed.caller.identity.name,
+      signOut: signOutTarget(authed.caller),
       flash: flashFromQuery(requestUrl(req)),
     })
   );
@@ -239,7 +352,7 @@ async function handleConfigSet(
     authed.client,
     form.get("key") ?? "",
     form.get("value") ?? "",
-    authed.session.userId
+    authed.caller.identity.userId
   );
   if (!outcome.ok) {
     redirect(

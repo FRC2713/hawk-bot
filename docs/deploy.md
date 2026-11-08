@@ -49,6 +49,15 @@ carries the bot token. Losing it costs one reinstall by an admin — keep a copy
 anyway, so that reinstall happens when you choose it rather than when a deploy
 surprises you.
 
+Leave `HAWK_SUITE_ISSUER` and `HAWK_SUITE_PUBLIC_KEY` empty unless you are
+running behind hawk_suite's sign-in gateway, which renders both into the
+container itself. Set, they let `/config` accept the Slack session the gateway
+already signed, so a mentor signs in once for the whole suite instead of once
+per app; unset, `/config` works exactly as it does today, behind its own Sign
+in with Slack. Either way the HawkBot Admin check is unchanged. Set one without
+the other and the app refuses to boot, on purpose — half-configured would mean
+a gateway session that looks verified and is not.
+
 ## 3. The Google service account
 
 Hawk Bot reads the team's calendars as a **service account** — a Google

@@ -6,6 +6,7 @@ import {
   forbiddenPage,
   landingPage,
   signInPage,
+  wrongWorkspacePage,
 } from "../src/web/pages.js";
 
 describe("escapeHtml", () => {
@@ -33,6 +34,44 @@ describe("pages", () => {
 
   it("sign-in page links the Slack OAuth entry point", () => {
     assert.match(signInPage(), /href="\/auth\/slack"/);
+    // With no gateway configured there is one door, and it is ours.
+    assert.ok(!signInPage().includes("Hawk Suite"));
+  });
+
+  it("sign-in page offers the suite portal when the gateway is configured", () => {
+    const html = signInPage("https://apps.suite.test/auth/");
+    assert.match(html, /href="https:\/\/apps\.suite\.test\/auth\/"/);
+    // Terminal page: our own sign-in stays reachable as a fallback.
+    assert.match(html, /href="\/auth\/slack"/);
+  });
+
+  it("wrong-workspace page is terminal and escapes the name", () => {
+    const html = wrongWorkspacePage(`<img src=x onerror=alert(1)>`);
+    assert.ok(!html.includes("<img"));
+    assert.match(html, /&lt;img/);
+    // No sign-in link: that is the loop this page exists to break.
+    assert.ok(!html.includes('href="/auth/slack"'));
+  });
+
+  it("a gateway session is signed out at the gateway, not here", () => {
+    // Clearing only our own cookie would make sign-out a no-op for someone
+    // the suite's domain-wide cookie is holding.
+    const suite = {
+      kind: "suite" as const,
+      href: "https://apps.x.test/auth/logout",
+    };
+    const html = configPage({
+      signedInAs: "Ty",
+      settings: [],
+      signOut: suite,
+    });
+    assert.match(html, /href="https:\/\/apps\.x\.test\/auth\/logout"/);
+    assert.ok(!html.includes('action="/auth/sign-out"'));
+    // Our own session still gets the POST form it always had.
+    assert.match(
+      configPage({ signedInAs: "Ty", settings: [] }),
+      /action="\/auth\/sign-out"/
+    );
   });
 
   it("forbidden page escapes the signed-in name", () => {

@@ -79,6 +79,69 @@ export function verifySession(
   return { userId, teamId, name, exp };
 }
 
+/* --------------------------------------------------------- which session */
+
+/**
+ * Who a verified session says is asking — the part every door agrees on. A
+ * `WebSession` is one; hawk_suite's gateway cookie yields another, with its own
+ * expiry already checked by the time it gets here (web/suiteSession.ts), which
+ * is why there is no `exp` to fake on this shape.
+ */
+export type WebIdentity = Pick<WebSession, "userId" | "teamId" | "name">;
+
+/** A verified identity a request arrived with. `viaSuite` marks hawk_suite's
+ * gateway cookie; otherwise it is hawk-bot's own session. */
+export type SessionCandidate = { identity: WebIdentity; viaSuite: boolean };
+
+export type SessionChoice =
+  /** Ask `isHawkBotAdmin()` about this one. */
+  | { kind: "use"; identity: WebIdentity; viaSuite: boolean }
+  /** Signed in, but to a workspace this app is not installed in. */
+  | { kind: "wrong-workspace"; identity: WebIdentity; viaSuite: boolean }
+  /** Nothing to go on; offer sign-in. */
+  | { kind: "sign-in" };
+
+/**
+ * Which verified session answers this request, given that there are now two
+ * doors to it (hawk-bot's own Sign in with Slack, and hawk_suite's gateway
+ * cookie — web/suiteSession.ts). Pure, and kept out of the handler, because
+ * two of the three outcomes are policy rather than plumbing:
+ *
+ * - A session for some other workspace is a stranger with a Slack account,
+ *   whatever their own workspace makes them. The gateway admits only the team
+ *   it was configured for, but that is its configuration and not hawk-bot's,
+ *   so each cookie is judged on its own against the installed team and either
+ *   one may turn out to be the usable door.
+ * - "Wrong workspace" has to be terminal — never a bounce back to sign-in.
+ *   The gateway issued the cookie that just failed, so sending the browser
+ *   there is a loop with no exit.
+ *
+ * Candidates are tried in order; pass the gateway's first, as it is the
+ * shorter-lived cookie and the one whose sign-out link actually ends the
+ * session it holds.
+ */
+export function chooseWebSession(
+  candidates: readonly SessionCandidate[],
+  installedTeamId: string
+): SessionChoice {
+  const usable = candidates.find((c) => c.identity.teamId === installedTeamId);
+  if (usable) {
+    return {
+      kind: "use",
+      identity: usable.identity,
+      viaSuite: usable.viaSuite,
+    };
+  }
+  const first = candidates[0];
+  return first
+    ? {
+        kind: "wrong-workspace",
+        identity: first.identity,
+        viaSuite: first.viaSuite,
+      }
+    : { kind: "sign-in" };
+}
+
 /**
  * The OAuth state round-trip: minted into a cookie when the sign-in redirect
  * leaves, required back — via both the cookie and Slack's `state` query
