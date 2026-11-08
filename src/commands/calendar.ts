@@ -90,22 +90,19 @@ async function previewCalendar(
   return {
     text: [
       `*${label}*`,
-      ...upcoming.map(
-        (e) =>
-          `• ${formatWeeklySummaryLine({
-            ...e,
-            checkinChannel: showCheckinPointer
-              ? checkinPointer(
-                  {
-                    title: e.title,
-                    calendarRole: "team_meeting",
-                    checkinChannel: null,
-                  },
-                  routingSettings
-                )
-              : undefined,
-          })}`
-      ),
+      ...upcoming.map((e) => {
+        const checkinChannel = showCheckinPointer
+          ? checkinPointer(
+              {
+                title: e.title,
+                calendarRole: "team_meeting",
+                checkinChannel: null,
+              },
+              routingSettings
+            )
+          : undefined;
+        return `• ${formatWeeklySummaryLine({ ...e, checkinChannel })}`;
+      }),
     ].join("\n"),
     failed: false,
   };

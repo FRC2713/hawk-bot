@@ -72,7 +72,14 @@ export function checkinPointer(
   }
 ): string | undefined {
   if (event.calendarRole !== "team_meeting") return undefined;
+  // A recorded channel is the truth, but only the FTC channel is worth a
+  // pointer: comparing against the *current* announce_channel would flag every
+  // old post once that setting changes.
   const channel =
     event.checkinChannel ?? resolveCheckinChannel(event, settings);
-  return channel && channel !== settings.announceChannel ? channel : undefined;
+  const ftcChannel = resolveFtcRouting({
+    marker: settings.ftcMarker,
+    channel: settings.ftcChannel,
+  })?.channel;
+  return channel && channel === ftcChannel ? channel : undefined;
 }

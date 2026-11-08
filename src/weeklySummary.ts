@@ -43,7 +43,8 @@ import {
 } from "./slack/weeklySummary.js";
 
 export function toWeeklySummaryEventInfo(
-  row: EventRow
+  row: EventRow,
+  routingSettings = getCheckinRoutingSettings()
 ): WeeklySummaryEventInfo {
   return {
     title: row.title,
@@ -58,7 +59,7 @@ export function toWeeklySummaryEventInfo(
         calendarRole: row.calendar_role,
         checkinChannel: row.checkin_channel,
       },
-      getCheckinRoutingSettings()
+      routingSettings
     ),
   };
 }
@@ -148,6 +149,7 @@ function buildEntriesFromItems(
   items: readonly SummaryItemRow[]
 ): WeeklySummaryLineEntry[] {
   const entries: WeeklySummaryLineEntry[] = [];
+  const routingSettings = getCheckinRoutingSettings();
   for (const item of items) {
     // Fetched even when already `removed` — the row (and its
     // `calendar_link`) still exists, only `removed_at` gets set.
@@ -166,7 +168,7 @@ function buildEntriesFromItems(
     }
     const event = liveEvent;
 
-    const currentInfo = toWeeklySummaryEventInfo(event);
+    const currentInfo = toWeeklySummaryEventInfo(event, routingSettings);
     if (item.added_mid_week) {
       // No "original" to contrast a mid-week addition against — always
       // show its current details, still tagged, for the rest of the week.

@@ -120,3 +120,10 @@ test("only Team Meeting events get a pointer", () => {
     undefined
   );
 });
+
+test("an old post in a changed announcements channel gets no pointer", () => {
+  assert.equal(
+    checkinPointer(team("Team Meeting", "COLDANNOUN"), on),
+    undefined
+  );
+});
