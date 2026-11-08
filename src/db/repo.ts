@@ -660,6 +660,31 @@ export function listEventsStartingInRange(
     .all(calendarRole, startIso, endIso);
 }
 
+/**
+ * Every non-removed Event happening at any point in range for one Calendar
+ * Role — unlike `listEventsStartingInRange`, this includes a Carry-Over
+ * Event that started before the window and runs into it. Used by the
+ * Mentor/Teacher Weekly Summary. Same Multi-Day Child exclusion. The overlap
+ * rule is `eventOverlapsRange` in domain/weeklySummary.ts, which this
+ * mirrors — keep the two in step.
+ */
+export function listEventsOverlappingRange(
+  startIso: string,
+  endIso: string,
+  calendarRole: EventCalendarRole
+): EventRow[] {
+  return db()
+    .prepare<[EventCalendarRole, string, string, string], EventRow>(
+      `SELECT * FROM events
+       WHERE removed_at IS NULL AND calendar_role = ?
+         AND multiday_parent_id IS NULL
+         AND starts_at < ?
+         AND (starts_at >= ? OR ends_at > ?)
+       ORDER BY starts_at`
+    )
+    .all(calendarRole, endIso, startIso, startIso);
+}
+
 export type WeeklySummaryRow = {
   id: number;
   channel: string;
