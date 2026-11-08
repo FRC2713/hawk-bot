@@ -1,5 +1,8 @@
 name: Publish container
 
+# Build and smoke test run alongside CI; only the push waits for it.
+# The steps live in FRC2713/hawk_suite/.github/workflows/publish-app.yml.
+
 on:
   push:
     branches: [main]
@@ -11,85 +14,23 @@ permissions:
 jobs:
   verify:
     uses: ./.github/workflows/ci.yml
-  publish:
-    needs: verify
-    runs-on: ubuntu-latest
+  # GitHub checks both calls against every job in publish-app.yml, so both
+  # allow packages: write. Each job there narrows its own token; only the push
+  # stage can write.
+  build:
+    uses: FRC2713/hawk_suite/.github/workflows/publish-app.yml@main
     permissions:
       contents: read
       packages: write
-    outputs:
-      digest: ${{ steps.push.outputs.digest }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build candidate once
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          load: true
-          platforms: linux/amd64
-          tags: hawk-candidate:${{ github.sha }}
-          build-args: APP_REVISION=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Smoke test candidate with a disposable database
-        env:
-          IMAGE: hawk-candidate:${{ github.sha }}
-        run: |
-          bash scripts/smoke-image.sh
-          BASELINE_IMAGE=ghcr.io/frc2713/hawk-bot:latest bash scripts/smoke-upgrade.sh
-      - name: Publish the tested image
-        id: push
-        env:
-          REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
-          REVISION: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          image=${REGISTRY_IMAGE,,}
-          docker tag "hawk-candidate:$REVISION" "$image:sha-$REVISION"
-          docker push "$image:sha-$REVISION"
-          digest=$(docker buildx imagetools inspect "$image:sha-$REVISION" --format '{{.Manifest.Digest}}')
-          [[ $digest =~ ^sha256:[a-f0-9]{64}$ ]]
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
-          echo "Published $image@$digest" >> "$GITHUB_STEP_SUMMARY"
-          # Compatibility aliases are updated only after verification. Production
-          # uses the immutable digest; interactive installs can keep using latest.
-          if [[ "$GITHUB_REF" == refs/heads/main ]]; then
-            for tag in main latest; do
-              docker tag "hawk-candidate:$REVISION" "$image:$tag"
-              docker push "$image:$tag"
-            done
-          else
-            version=${GITHUB_REF#refs/tags/v}
-            docker tag "hawk-candidate:$REVISION" "$image:$version"
-            docker push "$image:$version"
-          fi
-  propose:
-    needs: publish
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Create a short-lived suite automation token
-        id: app
-        uses: actions/create-github-app-token@v1
-        with:
-          app-id: ${{ vars.HAWK_SUITE_APP_ID }}
-          private-key: ${{ secrets.HAWK_SUITE_APP_PRIVATE_KEY }}
-          owner: FRC2713
-          repositories: hawk_suite
-      - name: Request a pinned release proposal
-        env:
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-          DIGEST: ${{ needs.publish.outputs.digest }}
-          REVISION: ${{ github.sha }}
-          APP: hawk-bot
-          RUN_ID: ${{ github.run_id }}
-        run: |
-          jq -n --arg app "$APP" --arg digest "$DIGEST" --arg revision "$REVISION" --arg run_id "$RUN_ID" \
-            '{event_type:"release-published",client_payload:{app:$app,digest:$digest,revision:$revision,run_id:$run_id}}' > request.json
-          gh api repos/FRC2713/hawk_suite/dispatches --input request.json
+    with:
+      app: hawk-bot
+      stage: build
+  push:
+    needs: [verify, build]
+    uses: FRC2713/hawk_suite/.github/workflows/publish-app.yml@main
+    permissions:
+      contents: read
+      packages: write
+    with:
+      app: hawk-bot
+      stage: push

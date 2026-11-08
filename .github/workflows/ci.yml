@@ -40,7 +40,6 @@ jobs:
       - name: Verify fresh startup and prior-release upgrade
         env:
           IMAGE: hawk-candidate:pr
-          BASELINE_IMAGE: ghcr.io/frc2713/hawk-bot:latest
         run: |
           bash scripts/smoke-image.sh
           bash scripts/smoke-upgrade.sh
