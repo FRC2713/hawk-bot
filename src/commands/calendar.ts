@@ -3,7 +3,8 @@ import {
   fetchCalendarEvents,
   serviceAccountIdentity,
 } from "../calendar/client.js";
-import { getSetting } from "../db/repo.js";
+import { getCheckinRoutingSettings, getSetting } from "../db/repo.js";
+import { checkinPointer } from "../domain/ftc.js";
 import { mapCalendarEvent, upcomingEvents } from "../domain/calendar.js";
 import {
   describeCalendarInventory,
@@ -29,7 +30,8 @@ const PUBLIC_CONTROL_CALENDAR = "en.usa#holiday@group.v.calendar.google.com";
 
 async function previewOne(
   settingKey: (typeof CALENDAR_SOURCES)[number]["settingKey"],
-  label: string
+  label: string,
+  calendarRole: (typeof CALENDAR_SOURCES)[number]["calendarRole"]
 ): Promise<Preview> {
   const calendarId = getSetting(settingKey);
   if (!calendarId) {
@@ -38,12 +40,18 @@ async function previewOne(
       failed: false,
     };
   }
-  return previewCalendar(label, calendarId);
+  return previewCalendar(label, calendarId, calendarRole === "team_meeting");
 }
 
+/**
+ * `showCheckinPointer` is for the Team Meeting section only: it tells a reader
+ * where each Event's Check-in Post will be, and is the early bug check for a
+ * joint meeting wrongly led by the FTC marker.
+ */
 async function previewCalendar(
   label: string,
-  calendarId: string
+  calendarId: string,
+  showCheckinPointer = false
 ): Promise<Preview> {
   let raw;
   try {
@@ -70,6 +78,7 @@ async function previewCalendar(
     }
   }
 
+  const routingSettings = getCheckinRoutingSettings();
   const upcoming = upcomingEvents(mapped, new Date(), PREVIEW_COUNT);
   if (upcoming.length === 0) {
     return {
@@ -81,7 +90,22 @@ async function previewCalendar(
   return {
     text: [
       `*${label}*`,
-      ...upcoming.map((e) => `• ${formatWeeklySummaryLine(e)}`),
+      ...upcoming.map(
+        (e) =>
+          `• ${formatWeeklySummaryLine({
+            ...e,
+            checkinChannel: showCheckinPointer
+              ? checkinPointer(
+                  {
+                    title: e.title,
+                    calendarRole: "team_meeting",
+                    checkinChannel: null,
+                  },
+                  routingSettings
+                )
+              : undefined,
+          })}`
+      ),
     ].join("\n"),
     failed: false,
   };
@@ -180,8 +204,8 @@ export const calendar: Command = {
     if (argument) return probeReply(identity, argument);
 
     const previews = await Promise.all(
-      CALENDAR_SOURCES.map(({ settingKey, label }) =>
-        previewOne(settingKey, label)
+      CALENDAR_SOURCES.map(({ settingKey, label, calendarRole }) =>
+        previewOne(settingKey, label, calendarRole)
       )
     );
 

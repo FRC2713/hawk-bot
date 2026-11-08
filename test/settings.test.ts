@@ -346,6 +346,7 @@ test("exactly the channel and usergroup settings declare how to resolve them for
     "attendance_report_channel",
     "mentor_summary_channel",
     "no_response_alert_channel",
+    "ftc_channel",
   ];
   const usergroupKeys = [
     "admin_usergroup",
@@ -362,4 +363,28 @@ test("exactly the channel and usergroup settings declare how to resolve them for
   for (const s of SETTINGS) {
     if (!resolvable.has(s.key)) assert.equal(s.resolveAs, undefined, s.key);
   }
+});
+
+test("the FTC event marker takes an emoji or a text marker", () => {
+  assert.equal(checkSetting("ftc_event_marker", "🟧").ok, true);
+  assert.equal(checkSetting("ftc_event_marker", "[FTC]").ok, true);
+  assert.equal(checkSetting("ftc_event_marker", "x".repeat(20)).ok, true);
+});
+
+// Slack rewrites an emoji typed or picked into a slash command as its
+// shortcode, which would store cleanly and then never match a calendar title.
+test("the FTC event marker refuses a :shortcode: and says where to set the emoji", () => {
+  for (const bad of [":large_orange_square:", ":FTC:", ":a+b-c:"]) {
+    const result = checkSetting("ftc_event_marker", bad);
+    assert.equal(result.ok, false, bad);
+    if (result.ok) return;
+    assert.match(result.reason, /web configuration page/);
+  }
+  assert.equal(checkSetting("ftc_event_marker", "   ").ok, false);
+  assert.equal(checkSetting("ftc_event_marker", "x".repeat(21)).ok, false);
+});
+
+test("the FTC channel takes a channel id, not a name", () => {
+  assert.equal(checkSetting("ftc_channel", "C0123456789").ok, true);
+  assert.equal(checkSetting("ftc_channel", "#pipeline-ftc").ok, false);
 });

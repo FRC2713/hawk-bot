@@ -30,7 +30,9 @@ export type SettingKey =
   | "no_response_alert_time"
   | "no_response_alert_threshold"
   | "student_usergroup"
-  | "mentor_usergroup";
+  | "mentor_usergroup"
+  | "ftc_event_marker"
+  | "ftc_channel";
 
 export type Setting = {
   key: SettingKey;
@@ -89,6 +91,9 @@ const CALENDAR_ID_EXPECTS =
  * both live questions Google answers, and `/hawkbot calendar` asks it.
  */
 const WORKSPACE_USER = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+
+/** `:large_orange_square:` — what Slack turns an emoji into inside a slash command. */
+const EMOJI_SHORTCODE = /^:[a-z0-9_+-]+:$/i;
 
 export const SETTINGS: readonly Setting[] = [
   {
@@ -248,6 +253,25 @@ export const SETTINGS: readonly Setting[] = [
     expects: "a user group handle, e.g. hawk-mentors (with or without the @)",
     validate: (v) => /^[a-zA-Z0-9_-]{1,80}$/.test(v.trim()),
     resolveAs: "usergroup",
+  },
+  {
+    key: "ftc_event_marker",
+    summary:
+      "Team Meeting events whose title starts with this check in to the FTC channel instead of announcements — needs ftc_channel too",
+    expects:
+      "a marker of up to 20 characters that FTC event titles start with, e.g. [FTC]. To use an emoji such as 🟧, set it on the web configuration page — Slack rewrites an emoji typed into a slash command as a :shortcode:, which would never match a calendar title",
+    validate: (v) => {
+      const t = v.trim();
+      return t.length > 0 && t.length <= 20 && !EMOJI_SHORTCODE.test(t);
+    },
+  },
+  {
+    key: "ftc_channel",
+    summary:
+      "Public opt-in channel FTC events check in to — needs ftc_event_marker too",
+    expects: "a channel id like C0123456789 (not the #name)",
+    validate: (v) => CHANNEL_ID.test(v.trim()),
+    resolveAs: "channel",
   },
 ];
 

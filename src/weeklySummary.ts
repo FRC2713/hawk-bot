@@ -14,7 +14,9 @@ import {
   type WeeklySummaryEventInfo,
   type WeeklySummaryLineEntry,
 } from "./domain/weeklySummary.js";
+import { checkinPointer } from "./domain/ftc.js";
 import {
+  getCheckinRoutingSettings,
   getEvent,
   getMostRecentWeeklySummary,
   getSetting,
@@ -50,6 +52,14 @@ export function toWeeklySummaryEventInfo(
     endsAt: new Date(row.ends_at),
     location: row.location,
     calendarLink: row.calendar_link,
+    checkinChannel: checkinPointer(
+      {
+        title: row.title,
+        calendarRole: row.calendar_role,
+        checkinChannel: row.checkin_channel,
+      },
+      getCheckinRoutingSettings()
+    ),
   };
 }
 
