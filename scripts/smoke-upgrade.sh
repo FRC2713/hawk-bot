@@ -24,6 +24,14 @@ wait_ready() {
   docker logs --tail=40 "$name"
   return 1
 }
+# Start from what production runs today, unless the caller names a baseline.
+if [[ -z ${BASELINE_IMAGE:-} ]]; then
+  digest=$(curl -fsSL https://raw.githubusercontent.com/FRC2713/hawk_suite/main/releases/production.json \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["apps"]["hawk-bot"]["digest"])')
+  [[ $digest =~ ^sha256:[a-f0-9]{64}$ ]] || { echo "Bad production digest: $digest" >&2; exit 1; }
+  BASELINE_IMAGE="ghcr.io/frc2713/hawk-bot@$digest"
+fi
+echo "Upgrade baseline: $BASELINE_IMAGE"
 docker pull --platform linux/amd64 "$BASELINE_IMAGE" >/dev/null
 docker volume create "$volume" >/dev/null
 docker run -d --name "$name" --network none -v "$volume:/data" --platform linux/amd64 "${args[@]}" "$BASELINE_IMAGE" >/dev/null
