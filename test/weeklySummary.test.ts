@@ -432,3 +432,41 @@ test("a timed Event crossing midnight into the window overlaps, and a zero-lengt
   assert.equal(eventOverlapsRange(zeroLengthAtOpen, OCT_4_POST_WINDOW), true);
   assert.equal(eventOverlapsRange(zeroLengthBefore, OCT_4_POST_WINDOW), false);
 });
+
+test("a line with a check-in channel ends with a link to it", () => {
+  const info: WeeklySummaryEventInfo = {
+    title: "🟧 FTC practice",
+    meetingType: "hourly",
+    startsAt: new Date("2026-02-03T18:00:00Z"),
+    endsAt: new Date("2026-02-03T20:00:00Z"),
+    location: "Shop",
+    calendarLink: null,
+  };
+  const plain = formatWeeklySummaryLine(info);
+  const pointed = formatWeeklySummaryLine({ ...info, checkinChannel: "C0FTC" });
+  assert.equal(pointed, `${plain} — check in: <#C0FTC>`);
+  // Without a channel the line is untouched.
+  assert.equal(
+    formatWeeklySummaryLine({ ...info, checkinChannel: undefined }),
+    plain
+  );
+});
+
+test("a struck-through snapshot line carries no pointer", () => {
+  const base: WeeklySummaryEventInfo = {
+    title: "🟧 FTC practice",
+    meetingType: "hourly",
+    startsAt: new Date("2026-02-03T18:00:00Z"),
+    endsAt: new Date("2026-02-03T20:00:00Z"),
+    location: "Shop",
+    calendarLink: null,
+  };
+  const text = renderEditedLine({
+    snapshot: base,
+    current: { ...base, location: "Lab", checkinChannel: "C0FTC" },
+    changedFields: ["location"],
+  });
+  const [struck, current] = text.split("\n");
+  assert.ok(!struck?.includes("check in"));
+  assert.match(current ?? "", /check in: <#C0FTC>/);
+});

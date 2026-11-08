@@ -16,6 +16,7 @@ import {
 } from "./domain/weeklySummary.js";
 import {
   getMostRecentNoResponseAlert,
+  getFtcRouting,
   getRecentOutcomesForUser,
   getSetting,
   insertNoResponseAlert,
@@ -85,6 +86,10 @@ export async function postDueNoResponseAlert(
   const now = new Date();
   if (!isWeeklySummaryDue(lastPostedAt, timing, now)) return;
 
+  // An FTC meeting is posted to an opt-in channel most students never see, so
+  // it can't count against them. Nothing is filtered when the feature is off.
+  const ftcChannel = getFtcRouting()?.channel;
+
   const studentGroupId = getSetting("student_usergroup");
   const mentorGroupId = getSetting("mentor_usergroup");
   if (!studentGroupId || !mentorGroupId) {
@@ -129,7 +134,8 @@ export async function postDueNoResponseAlert(
 
     const recent: RecentMeetingOutcome[] = getRecentOutcomesForUser(
       userId,
-      threshold
+      threshold,
+      ftcChannel
     ).map((row) => ({
       status: row.status,
       title: row.title,

@@ -26,10 +26,12 @@ import {
   type CheckinPostOffsets,
   type MappedEvent,
 } from "./domain/calendar.js";
+import { resolveCheckinChannel } from "./domain/ftc.js";
 import { fetchCalendarEvents } from "./calendar/client.js";
 import {
   anyInstallation,
   getAttendanceForEvent,
+  getCheckinRoutingSettings,
   getEvent,
   getEventByCalendarId,
   getRoster,
@@ -488,19 +490,39 @@ async function postDueCheckins(
   client: WebClient,
   botUserId: string
 ): Promise<void> {
-  const channelId = getSetting("announce_channel");
-  if (!channelId) return;
+  const routing = getCheckinRoutingSettings();
+  if (!routing.announceChannel) return;
 
+  // One unusable channel (archived, deleted, mistyped) must not block the
+  // events behind it, so each event is its own try. The errors are collected
+  // and rethrown as one at the end so `recordStep` still shows the step failed.
+  const failures: string[] = [];
   for (const event of listEventsDueForCheckin(new Date().toISOString())) {
-    const { channel, ts, roster } = await postCheckinPost(
-      client,
-      event,
-      channelId,
-      botUserId
+    const channelId = resolveCheckinChannel(event, routing);
+    if (!channelId) continue;
+    try {
+      const { channel, ts, roster } = await postCheckinPost(
+        client,
+        event,
+        channelId,
+        botUserId
+      );
+      markCheckinPosted(event.id, channel, ts);
+      snapshotRoster(event.id, roster);
+      log.info("check-in post sent", { eventId: event.id, channel, ts });
+    } catch (err) {
+      log.error("check-in post failed", {
+        eventId: event.id,
+        channel: channelId,
+        error: String(err),
+      });
+      failures.push(`event #${event.id} → ${channelId}: ${String(err)}`);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(
+      `${failures.length} check-in post(s) failed: ${failures.join("; ")}`
     );
-    markCheckinPosted(event.id, channel, ts);
-    snapshotRoster(event.id, roster);
-    log.info("check-in post sent", { eventId: event.id, channel, ts });
   }
 }
 
@@ -641,8 +663,10 @@ export async function attemptEventCutoff(
   }
 
   const allDayHours = defaultAllDayHours();
+  const attendingUserIds: string[] = [];
   for (const row of getAttendanceForEvent(event.id)) {
     if (row.status !== "attending") continue;
+    attendingUserIds.push(row.user_id);
     const hours = hoursCredited({
       meetingType: event.meeting_type as MeetingType,
       startsAt: new Date(event.starts_at),
@@ -651,6 +675,12 @@ export async function attemptEventCutoff(
     });
     setHoursCredited(event.id, row.user_id, hours);
   }
+  // Anyone who ends up Attending is on the Roster, whether or not they were in
+  // the channel when the post went out (an FTC channel is opt-in; a student can
+  // join after the post and react). Season totals, the CSV and the report all
+  // join through event_roster. INSERT OR IGNORE, so people already on it are
+  // untouched — and only Attending adds someone, never a ❌ or silence.
+  snapshotRoster(event.id, attendingUserIds);
 
   await lockCheckinPost(client, event).catch((err) =>
     log.error("could not lock check-in post", {
