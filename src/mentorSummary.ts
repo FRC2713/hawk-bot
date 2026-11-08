@@ -12,7 +12,7 @@ import {
   getMostRecentMentorSummary,
   getSetting,
   insertMentorSummary,
-  listEventsStartingInRange,
+  listEventsOverlappingRange,
 } from "./db/repo.js";
 import { log } from "./logger.js";
 import { postWeeklySummary } from "./slack/weeklySummary.js";
@@ -23,6 +23,9 @@ import { toWeeklySummaryEventInfo } from "./weeklySummary.js";
  * the 14 days starting tomorrow — a rolling look-ahead (see
  * upcomingTwoWeekRange), wider than the Team Meeting Weekly Summary's
  * one-week span for more lead time on travel and unavailability conflicts.
+ * Lists every Event happening in that window, including a Carry-Over Event
+ * that started before it — an unavailability must keep appearing for as
+ * long as it runs, not only in the post before it begins.
  * Every prior post stays, never replaced (see ADR-0014). Unlike the Team
  * Meeting Weekly Summary, there is no mid-window edit-in-place here — a
  * change mid-week shows up corrected on the next scheduled post rather
@@ -41,7 +44,7 @@ export async function postDueMentorSummary(client: WebClient): Promise<void> {
   if (!isWeeklySummaryDue(lastPostedAt, timing, now)) return;
 
   const { start, end } = upcomingTwoWeekRange(now);
-  const events = listEventsStartingInRange(
+  const events = listEventsOverlappingRange(
     start.toISOString(),
     end.toISOString(),
     "mentor"

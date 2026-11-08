@@ -4,6 +4,7 @@ import {
   DEFAULT_WEEKLY_SUMMARY_TIMING,
   assembleWeeklySummaryMessage,
   calendarSubscribeLink,
+  eventOverlapsRange,
   formatWeeklySummaryLine,
   isWeeklySummaryDue,
   isWithinWeek,
@@ -368,6 +369,68 @@ test("no subscribe link means no footer line", () => {
     entries: [],
   });
   assert.doesNotMatch(message, /📅/);
+});
+
+// The Oct 4 2026 Mentor/Teacher post said "Nothing" while an unavailability
+// ran Oct 2–12, because only Events *starting* in the window were listed.
+const OCT_4_POST_WINDOW = upcomingTwoWeekRange(
+  new Date("2026-10-04T12:00:00Z")
+);
+
+test("a Carry-Over Event that started before the window and runs into it overlaps", () => {
+  assert.equal(
+    OCT_4_POST_WINDOW.start.toISOString(),
+    "2026-10-05T00:00:00.000Z"
+  );
+  const fgc = {
+    startsAt: new Date("2026-10-02T00:00:00Z"),
+    endsAt: new Date("2026-10-13T00:00:00Z"), // exclusive: last day is Oct 12
+  };
+  assert.equal(eventOverlapsRange(fgc, OCT_4_POST_WINDOW), true);
+});
+
+test("an Event whose last day is the window's first day still overlaps; one that ended the day before does not", () => {
+  const lastDayIsFirstDay = {
+    startsAt: new Date("2026-10-03T00:00:00Z"),
+    endsAt: new Date("2026-10-06T00:00:00Z"), // last day Oct 5
+  };
+  const endedDayBefore = {
+    startsAt: new Date("2026-10-03T00:00:00Z"),
+    endsAt: new Date("2026-10-05T00:00:00Z"), // last day Oct 4
+  };
+  assert.equal(eventOverlapsRange(lastDayIsFirstDay, OCT_4_POST_WINDOW), true);
+  assert.equal(eventOverlapsRange(endedDayBefore, OCT_4_POST_WINDOW), false);
+});
+
+test("an Event starting inside the window overlaps; one starting at or after its end does not", () => {
+  const inside = {
+    startsAt: new Date("2026-10-10T00:00:00Z"),
+    endsAt: new Date("2026-10-11T00:00:00Z"),
+  };
+  const startsAtEnd = {
+    startsAt: OCT_4_POST_WINDOW.end,
+    endsAt: new Date("2026-10-20T00:00:00Z"),
+  };
+  assert.equal(eventOverlapsRange(inside, OCT_4_POST_WINDOW), true);
+  assert.equal(eventOverlapsRange(startsAtEnd, OCT_4_POST_WINDOW), false);
+});
+
+test("a timed Event crossing midnight into the window overlaps, and a zero-length Event counts only if it starts inside", () => {
+  const overnight = {
+    startsAt: new Date("2026-10-04T23:00:00Z"),
+    endsAt: new Date("2026-10-05T01:00:00Z"),
+  };
+  const zeroLengthAtOpen = {
+    startsAt: OCT_4_POST_WINDOW.start,
+    endsAt: OCT_4_POST_WINDOW.start,
+  };
+  const zeroLengthBefore = {
+    startsAt: new Date("2026-10-04T10:00:00Z"),
+    endsAt: new Date("2026-10-04T10:00:00Z"),
+  };
+  assert.equal(eventOverlapsRange(overnight, OCT_4_POST_WINDOW), true);
+  assert.equal(eventOverlapsRange(zeroLengthAtOpen, OCT_4_POST_WINDOW), true);
+  assert.equal(eventOverlapsRange(zeroLengthBefore, OCT_4_POST_WINDOW), false);
 });
 
 test("a line with a check-in channel ends with a link to it", () => {

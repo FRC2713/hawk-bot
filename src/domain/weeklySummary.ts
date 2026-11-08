@@ -123,6 +123,25 @@ export function isWithinWeek(date: Date, range: WeekRange): boolean {
   );
 }
 
+/**
+ * Whether an Event is happening at any point in `range` — including a
+ * Carry-Over Event that started before the window opened. `endsAt` is
+ * exclusive for all-day and multi-day Events (Google's own convention, see
+ * domain/calendar.ts's MappedEvent), so an Event whose last day is the
+ * window's first day still counts. An Event with no duration (`endsAt` ==
+ * `startsAt`) counts when it starts inside the window. Mirrored in SQL by
+ * `listEventsOverlappingRange` in db/repo.ts — keep the two in step.
+ */
+export function eventOverlapsRange(
+  event: { startsAt: Date; endsAt: Date },
+  range: WeekRange
+): boolean {
+  const startsBeforeWindowEnds = event.startsAt.getTime() < range.end.getTime();
+  const startsInWindow = event.startsAt.getTime() >= range.start.getTime();
+  const endsAfterWindowOpens = event.endsAt.getTime() > range.start.getTime();
+  return startsBeforeWindowEnds && (startsInWindow || endsAfterWindowOpens);
+}
+
 export type WeeklySummaryEventInfo = {
   title: string;
   meetingType: CalendarMeetingType;
