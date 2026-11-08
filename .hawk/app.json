@@ -20,8 +20,8 @@
     "PORT",
     "TZ",
     "HAWK_SUITE_ISSUER",
-    "HAWK_SUITE_PUBLIC_KEY",
-    "HAWK_SUITE_AUDIENCE"
+    "HAWK_SUITE_TRUST_PROXY",
+    "HAWK_SUITE_TEAM_ID"
   ],
   "migrations": "on-start",
   "rollback": "requires-schema-review"
