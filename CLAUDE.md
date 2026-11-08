@@ -68,9 +68,8 @@ src/web/routes.ts       the web surface at bot.<domain>: a landing page, and a
                         session, plus the HawkBot Admin check either way
 src/web/session.ts      stateless HMAC-signed session cookies, and which of the
                         two doors answers a request; pure, tested
-src/web/suiteSession.ts verifies hawk_suite's gateway session cookie — the
-                        second door to /config. Pure, no dependencies, and the
-                        algorithm list is an allowlist on purpose
+src/web/suiteSession.ts parses trusted Hawk Suite identity headers; pure,
+                        enabled only on the isolated gateway network
 src/web/pages.ts        HTML rendering; pure, tested
 ```
 
@@ -132,8 +131,7 @@ nothing in the suite — Caddy fronts it.
    configuration page's Sign in with Slack, which answer "who is this
    person" and grant nothing else — the token is used for that single
    lookup and discarded, never stored. See ADR-0015. Accepting hawk_suite's
-   gateway session (below) adds no scope at all: it reads a cookie the
-   gateway already signed, and asks Slack for nothing.
+   gateway identity headers adds no scope at all and asks Slack for nothing.
 2. **Never log message text or a token.** `logger.ts` writes JSON to stderr and
    that is not an auditable place.
 3. **Migrations that have shipped are never edited.** Add another file.
@@ -148,40 +146,17 @@ nothing in the suite — Caddy fronts it.
 6. **`.env.example` documents every variable `config.ts` reads.** A missing one
    reads as "the feature is off".
 
-### A second door to the same lock
+### Trusted gateway identity
 
-Behind hawk_suite's gateway the browser already carries a Slack session Caddy
-signed at `apps.<domain>/auth/`, in a cookie scoped to the bare domain. Asking
-a mentor to Sign in with Slack a second time to reach `/config` is a wart, not
-security, so `/config` also accepts a verified `AUTHP_ACCESS_TOKEN`
-(`web/suiteSession.ts`). Four things hold it up, and each is load-bearing:
-
-- **The cookie is verified, never a header.** RS256/384/512 signature against
-  `HAWK_SUITE_PUBLIC_KEY`, exact issuer, audience, a required `exp` in the
-  future, `nbf` when present, `roles` containing `suite/member`, and a
-  `slack:<team>:<user>` subject that both Slack ids are read back out of. An
-  `X-Hawk-Identity`-style header is never trusted: the gateway strips one on
-  the way in, but hawk-bot is also reachable directly on the Docker network,
-  where no header is honest and no hop is in front of it. This is the suite's
-  documented contract, and what hawk-eye does against the same gateway.
-- **The permitted algorithms are an allowlist.** Reading `alg` out of the token
-  and believing it is what makes `alg: none` and an `HS256` token forged with
-  the published (non-secret) verification key work. Both are tested.
-- **It decides identity only.** Suite membership grants nothing by itself — the
-  gateway admits every member of the workspace. `isHawkBotAdmin()` still runs
-  live on every request (ADR-0004), and the session's team must be the installed
-  team. A session for another workspace gets a terminal page, never a bounce
-  back to sign-in: the gateway issued the cookie that just failed, so that
-  would loop with no exit.
-- **`HAWK_SUITE_*` is environment, never a setting** (rule 4), and
-  both-or-neither, checked at `config()`. A public key an admin could edit from
-  the app is an admin who can mint themselves a session; an issuer with no key
-  verifies nothing. Hawk Bot cannot clear a cookie scoped to the whole domain
-  and holding the other apps' sessions, so a person the gateway holds is
-  offered the gateway's own logout instead of a sign-out that would be a no-op.
-
-Hawk Bot's own OIDC sign-in is unchanged and stays the only door when the
-gateway is unset, which is every local run.
+`web/suiteSession.ts` parses the trusted-header contract from Hawk Suite #42.
+It is enabled only by `HAWK_SUITE_TRUST_PROXY=true` with a configured workspace
+and portal issuer. Keep the app on its isolated Caddy network with no published
+ports. Require matching subject, team and user IDs and the exact `suite/member`
+role. Node request adapters use `headersDistinct` to reject duplicate identity
+fields. Local Slack sign-in remains available; suite identity still passes the
+installed-workspace and `isHawkBotAdmin()` checks on every config request.
+Name and email are display only. Gateway roles are not Slack user groups.
+See `docs/deploy.md` for deployment and trust requirements.
 
 ## Agent skills
 

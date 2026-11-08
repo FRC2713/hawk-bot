@@ -37,11 +37,7 @@ import {
   type WebIdentity,
   type WebSession,
 } from "./session.js";
-import {
-  suitePublicKey,
-  SUITE_COOKIE,
-  verifySuiteToken,
-} from "./suiteSession.js";
+import { readSuiteHeaders } from "./suiteSession.js";
 
 /**
  * The web surface behind `bot.<domain>`: a landing page, and a configuration
@@ -55,15 +51,8 @@ import {
  * then decided by the same HawkBot Admin check every admin command goes
  * through (slack/authz.ts). See ADR-0015.
  *
- * Two doors, one lock. Behind hawk_suite's gateway the browser already carries
- * a Slack session the gateway signed, and asking a mentor to Sign in with Slack
- * a second time to reach the same page is a wart, not security — so a verified
- * `AUTHP_ACCESS_TOKEN` is accepted here as identity as well (suiteSession.ts).
- * It answers only "who is asking": `isHawkBotAdmin()` still runs on every
- * request, so suite membership grants nothing by itself. Hawk Bot's own
- * sign-in is unchanged, and is the only door when the gateway is not
- * configured — which is every local run. See CLAUDE.md, "A second door to
- * the same lock".
+ * The gateway can supply trusted identity headers on its isolated network.
+ * `isHawkBotAdmin()` still runs for either that identity or local Slack sign-in.
  *
  * CSRF: session cookies are SameSite=Lax, and every state-changing POST also
  * requires an Origin header matching PUBLIC_URL.
@@ -119,15 +108,10 @@ function installedWorkspace():
 }
 
 /** Whether hawk-bot runs behind hawk_suite's sign-in gateway. */
-function suiteGateway():
-  { issuer: string; audience: string; key: string } | undefined {
+function suiteGateway(): { issuer: string; teamId: string } | undefined {
   const cfg = config();
-  return cfg.HAWK_SUITE_ISSUER && cfg.HAWK_SUITE_PUBLIC_KEY
-    ? {
-        issuer: cfg.HAWK_SUITE_ISSUER,
-        audience: cfg.HAWK_SUITE_AUDIENCE,
-        key: cfg.HAWK_SUITE_PUBLIC_KEY,
-      }
+  return cfg.HAWK_SUITE_TRUST_PROXY
+    ? { issuer: cfg.HAWK_SUITE_ISSUER!, teamId: cfg.HAWK_SUITE_TEAM_ID! }
     : undefined;
 }
 
@@ -137,34 +121,21 @@ function suitePortalUrl(): string | undefined {
   return gateway ? new URL("auth/", gateway.issuer).href : undefined;
 }
 
-/**
- * Who the gateway says is asking, verified against its public key — never a
- * proxy header, because hawk-bot is reachable directly on the Docker network
- * where no header is honest. The gateway's `name` claim is optional and
- * display-only; the Slack user id stands in when it is absent, exactly as it
- * does for an OIDC sign-in with no profile name.
- */
+/** Identity supplied by Caddy after suite authentication, not app authority. */
 function suiteIdentity(req: IncomingMessage): WebIdentity | undefined {
   const gateway = suiteGateway();
   if (!gateway) return undefined;
-  const token = parseCookies(req.headers.cookie).get(SUITE_COOKIE);
-  if (!token) return undefined;
-  const verified = verifySuiteToken(
-    token,
-    {
-      issuer: gateway.issuer,
-      audience: gateway.audience,
-      // Parsed and cached at config() time, so this cannot throw here.
-      key: suitePublicKey(gateway.key),
-    },
-    Date.now()
+  const identity = readSuiteHeaders(
+    req.headersDistinct ?? req.headers,
+    gateway.teamId
   );
-  if (!verified) return undefined;
-  return {
-    userId: verified.userId,
-    teamId: verified.teamId,
-    name: verified.name ?? verified.userId,
-  };
+  return identity
+    ? {
+        userId: identity.userId,
+        teamId: identity.teamId,
+        name: identity.name ?? identity.userId,
+      }
+    : undefined;
 }
 
 /**
@@ -193,8 +164,7 @@ async function requireAdmin(
   res: ServerResponse
 ): Promise<{ caller: Caller; client: WebClient } | undefined> {
   const candidates: SessionCandidate[] = [];
-  // The gateway's first: it is the shorter-lived cookie, and the one whose
-  // sign-out link actually ends the session it holds.
+  // Prefer the gateway identity and its gateway logout link.
   const fromSuite = suiteIdentity(req);
   if (fromSuite) candidates.push({ identity: fromSuite, viaSuite: true });
   const own = currentSession(req);

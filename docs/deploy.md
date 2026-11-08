@@ -49,14 +49,32 @@ carries the bot token. Losing it costs one reinstall by an admin — keep a copy
 anyway, so that reinstall happens when you choose it rather than when a deploy
 surprises you.
 
-Leave `HAWK_SUITE_ISSUER` and `HAWK_SUITE_PUBLIC_KEY` empty unless you are
-running behind hawk_suite's sign-in gateway, which renders both into the
-container itself. Set, they let `/config` accept the Slack session the gateway
-already signed, so a mentor signs in once for the whole suite instead of once
-per app; unset, `/config` works exactly as it does today, behind its own Sign
-in with Slack. Either way the HawkBot Admin check is unchanged. Set one without
-the other and the app refuses to boot, on purpose — half-configured would mean
-a gateway session that looks verified and is not.
+## Trusted suite identity
+
+Set `HAWK_SUITE_TRUST_PROXY=true`, `HAWK_SUITE_TEAM_ID` to the gateway's Slack
+workspace ID, and `HAWK_SUITE_ISSUER` to `https://apps.<domain>/` for portal and
+logout links. Proxy trust defaults to false. These are deployment configuration,
+never editable workspace settings. The former `HAWK_SUITE_PUBLIC_KEY` and
+`HAWK_SUITE_AUDIENCE` settings are no longer accepted by the image contract.
+
+Enable only behind Hawk Suite's Caddy gateway with no published backend ports
+and a separate app network shared only with Caddy. Caddy removes incoming
+identity headers before authorization and inserts verified values afterward.
+The host and proxy are trusted. Direct clients on this network can impersonate
+users; never attach untrusted containers or expose the backend directly.
+
+The adapter requires `X-Token-Subject`, `X-Hawk-Slack-Team`, `X-Hawk-Slack-User`,
+and `X-Token-User-Roles`. The team must match the configured workspace, the
+subject must equal `slack:<team>:<user>`, and roles must contain the exact
+space-separated `suite/member` role. Duplicate or malformed identity fields
+are refused. Name and email headers are optional display data, never permissions.
+The app no longer verifies `AUTHP_ACCESS_TOKEN`; Caddy owns session verification
+and expiry. Gateway roles never substitute for app authorization.
+
+The installed workspace must also match. The existing app-specific administrator
+check still runs on GET and POST. Local Slack sign-in remains available when
+proxy trust is off. Suite logout ends the gateway session; local app cookies
+remain separate. Settings writes retain their Origin checks.
 
 ## 3. The Google service account
 
