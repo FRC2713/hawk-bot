@@ -72,9 +72,9 @@ The app no longer verifies `AUTHP_ACCESS_TOKEN`; Caddy owns session verification
 and expiry. Gateway roles never substitute for app authorization.
 
 The installed workspace must also match. The existing app-specific administrator
-check still runs on GET and POST. Local Slack sign-in remains available when
-proxy trust is off. Suite logout ends the gateway session; local app cookies
-remain separate. Settings writes retain their Origin checks.
+check still runs on GET and POST. With proxy trust off there is no web
+sign-in, and `/config` points at `/hawkbot config` in Slack. Sign-out is the
+suite's logout. Settings writes retain their Origin checks.
 
 ## 3. The Google service account
 

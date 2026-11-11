@@ -25,6 +25,8 @@ describe("escapeHtml", () => {
   });
 });
 
+const LOGOUT = "https://apps.x.test/auth/logout";
+
 describe("pages", () => {
   it("landing page names the app and links to configuration", () => {
     const html = landingPage();
@@ -32,50 +34,37 @@ describe("pages", () => {
     assert.match(html, /href="\/config"/);
   });
 
-  it("sign-in page links the Slack OAuth entry point", () => {
-    assert.match(signInPage(), /href="\/auth\/slack"/);
-    // With no gateway configured there is one door, and it is ours.
-    assert.ok(!signInPage().includes("Hawk Suite"));
+  it("sign-in page points at Slack config when there is no gateway", () => {
+    const html = signInPage();
+    assert.match(html, /\/hawkbot config/);
+    assert.ok(!html.includes("/auth/slack"));
   });
 
   it("sign-in page offers the suite portal when the gateway is configured", () => {
     const html = signInPage("https://apps.suite.test/auth/");
     assert.match(html, /href="https:\/\/apps\.suite\.test\/auth\/"/);
-    // Terminal page: our own sign-in stays reachable as a fallback.
-    assert.match(html, /href="\/auth\/slack"/);
+    assert.ok(!html.includes("/auth/slack"));
   });
 
   it("wrong-workspace page is terminal and escapes the name", () => {
-    const html = wrongWorkspacePage(`<img src=x onerror=alert(1)>`);
+    const html = wrongWorkspacePage(`<img src=x onerror=alert(1)>`, LOGOUT);
     assert.ok(!html.includes("<img"));
     assert.match(html, /&lt;img/);
     // No sign-in link: that is the loop this page exists to break.
-    assert.ok(!html.includes('href="/auth/slack"'));
+    assert.ok(!html.includes("Sign in with"));
   });
 
-  it("a gateway session is signed out at the gateway, not here", () => {
-    // Clearing only our own cookie would make sign-out a no-op for someone
-    // the suite's domain-wide cookie is holding.
-    const suite = {
-      kind: "suite" as const,
-      href: "https://apps.x.test/auth/logout",
-    };
+  it("signs out at the gateway", () => {
     const html = configPage({
       signedInAs: "Ty",
       settings: [],
-      signOut: suite,
+      signOut: LOGOUT,
     });
     assert.match(html, /href="https:\/\/apps\.x\.test\/auth\/logout"/);
-    assert.ok(!html.includes('action="/auth/sign-out"'));
-    // Our own session still gets the POST form it always had.
-    assert.match(
-      configPage({ signedInAs: "Ty", settings: [] }),
-      /action="\/auth\/sign-out"/
-    );
   });
 
   it("forbidden page escapes the signed-in name", () => {
-    const html = forbiddenPage(`<img src=x onerror=alert(1)>`);
+    const html = forbiddenPage(`<img src=x onerror=alert(1)>`, LOGOUT);
     assert.ok(!html.includes("<img"));
     assert.match(html, /&lt;img/);
   });
@@ -83,6 +72,7 @@ describe("pages", () => {
   it("config page renders every setting and escapes stored values", () => {
     const html = configPage({
       signedInAs: "Ty",
+      signOut: LOGOUT,
       settings: [
         {
           key: "announce_channel",
@@ -110,6 +100,7 @@ describe("pages", () => {
   it("config page prefers the resolved display over the raw value", () => {
     const html = configPage({
       signedInAs: "Ty",
+      signOut: LOGOUT,
       settings: [
         {
           key: "announce_channel",
