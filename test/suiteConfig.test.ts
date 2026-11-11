@@ -68,7 +68,9 @@ it("ignores gateway headers and cookies when proxy trust is off", () => {
     await webRoutes().find(r => r.path === "/config").handler({ headers: {
       cookie: "AUTHP_ACCESS_TOKEN=untrusted", "x-token-subject": "slack:TTEAM:UADMIN", "x-hawk-slack-team": "TTEAM", "x-hawk-slack-user": "UADMIN", "x-token-user-roles": "suite/member"
     } }, res);
-    assert.ok(location === "/auth/slack" || /Sign in with Slack/.test(body));
+    assert.equal(location, undefined);
+    assert.ok(body.includes("/hawkbot config"));
+    assert.ok(!body.includes("Signed in as"));
   `
   );
   assert.equal(result.status, 0, result.stderr);

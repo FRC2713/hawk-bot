@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { CustomRoute } from "@slack/bolt";
 import { WebClient } from "@slack/web-api";
@@ -23,51 +22,25 @@ import {
   wrongWorkspacePage,
   type Flash,
   type SettingView,
-  type SignOut,
 } from "./pages.js";
-import {
-  chooseWebSession,
-  parseCookies,
-  serializeCookie,
-  signSession,
-  signState,
-  verifySession,
-  verifyState,
-  type SessionCandidate,
-  type WebIdentity,
-  type WebSession,
-} from "./session.js";
 import { readSuiteHeaders } from "./suiteSession.js";
 
 /**
  * The web surface behind `bot.<domain>`: a landing page, and a configuration
  * page for the same workspace settings as `/hawkbot config`.
  *
- * Sign in with Slack (OpenID Connect) answers "who is this browser" — and
- * that is *all* it answers. The scopes are `openid profile`, which grant
- * identity, not access: the token Slack hands back can call
- * `openid.connect.userInfo` and nothing else, is used for exactly that one
- * call, and is never stored or logged. What a signed-in person may *do* is
- * then decided by the same HawkBot Admin check every admin command goes
- * through (slack/authz.ts). See ADR-0015.
+ * Who is asking comes from hawk_suite's sign-in gateway and nothing else:
+ * Caddy verifies the suite session and passes the Slack identity in trusted
+ * headers (web/suiteSession.ts). Hawk Bot runs no sign-in of its own and sets
+ * no cookies. What a signed-in person may *do* is then decided by the same
+ * HawkBot Admin check every admin command goes through (slack/authz.ts).
+ * Without the gateway the page only points at `/hawkbot config`. See ADR-0017.
  *
- * The gateway can supply trusted identity headers on its isolated network.
- * `isHawkBotAdmin()` still runs for either that identity or local Slack sign-in.
- *
- * CSRF: session cookies are SameSite=Lax, and every state-changing POST also
+ * CSRF: the suite cookie is SameSite=Lax, and every state-changing POST also
  * requires an Origin header matching PUBLIC_URL.
  */
 
-export const OIDC_SCOPES = "openid profile";
-
-const SESSION_COOKIE = "hawk_bot_session";
-const STATE_COOKIE = "hawk_bot_oauth_state";
-const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
-const STATE_TTL_MS = 10 * 60 * 1000;
-
-function isSecure(): boolean {
-  return new URL(config().PUBLIC_URL).protocol === "https:";
-}
+type Caller = { userId: string; teamId: string; name: string };
 
 function sendHtml(res: ServerResponse, code: number, body: string): void {
   res.writeHead(code, {
@@ -77,23 +50,9 @@ function sendHtml(res: ServerResponse, code: number, body: string): void {
   res.end(body);
 }
 
-function redirect(
-  res: ServerResponse,
-  location: string,
-  cookies: string[] = []
-): void {
-  res.writeHead(303, {
-    location,
-    "cache-control": "no-store",
-    ...(cookies.length ? { "set-cookie": cookies } : {}),
-  });
+function redirect(res: ServerResponse, location: string): void {
+  res.writeHead(303, { location, "cache-control": "no-store" });
   res.end();
-}
-
-function currentSession(req: IncomingMessage): WebSession | undefined {
-  const token = parseCookies(req.headers.cookie).get(SESSION_COOKIE);
-  if (!token) return undefined;
-  return verifySession(token, config().SLACK_STATE_SECRET, Date.now());
 }
 
 /** The installed workspace's bot client — the same pattern as scheduler.ts. */
@@ -115,16 +74,11 @@ function suiteGateway(): { issuer: string; teamId: string } | undefined {
     : undefined;
 }
 
-/** The suite portal a browser signs in at, when there is one. */
-function suitePortalUrl(): string | undefined {
-  const gateway = suiteGateway();
-  return gateway ? new URL("auth/", gateway.issuer).href : undefined;
-}
-
 /** Identity supplied by Caddy after suite authentication, not app authority. */
-function suiteIdentity(req: IncomingMessage): WebIdentity | undefined {
-  const gateway = suiteGateway();
-  if (!gateway) return undefined;
+function suiteCaller(
+  req: IncomingMessage,
+  gateway: { teamId: string }
+): Caller | undefined {
   const identity = readSuiteHeaders(
     req.headersDistinct ?? req.headers,
     gateway.teamId
@@ -139,76 +93,42 @@ function suiteIdentity(req: IncomingMessage): WebIdentity | undefined {
 }
 
 /**
- * The caller, and which door they came through — "sign out" has to point at
- * whichever session actually holds them.
- */
-type Caller = { identity: WebIdentity; viaSuite: boolean };
-
-/** Only the session holding this person can end it; see pages.ts, SignOut. */
-function signOutTarget(caller: Caller): SignOut {
-  const gateway = suiteGateway();
-  return caller.viaSuite && gateway
-    ? { kind: "suite", href: new URL("auth/logout", gateway.issuer).href }
-    : { kind: "own" };
-}
-
-/**
- * The session-and-authorization gate in front of the configuration page and
+ * The identity-and-authorization gate in front of the configuration page and
  * both of its POSTs. Writes the appropriate page and returns undefined when
- * the caller should stop; whichever door a session came through, its team must
- * be the installed team, so a sign-in from some other Slack workspace proves
- * nothing here (chooseWebSession decides, and is tested).
+ * the caller should stop. The gateway's team must also be the installed team:
+ * a sign-in to some other Slack workspace proves nothing here, and that page
+ * is terminal, because a "sign in again" link would loop back to the gateway
+ * that just admitted them.
  */
 async function requireAdmin(
   req: IncomingMessage,
   res: ServerResponse
-): Promise<{ caller: Caller; client: WebClient } | undefined> {
-  const candidates: SessionCandidate[] = [];
-  // Prefer the gateway identity and its gateway logout link.
-  const fromSuite = suiteIdentity(req);
-  if (fromSuite) candidates.push({ identity: fromSuite, viaSuite: true });
-  const own = currentSession(req);
-  if (own) candidates.push({ identity: own, viaSuite: false });
-
-  if (candidates.length === 0) {
-    sendHtml(res, 200, signInPage(suitePortalUrl()));
+): Promise<{ caller: Caller; signOut: string; client: WebClient } | undefined> {
+  const gateway = suiteGateway();
+  const caller = gateway ? suiteCaller(req, gateway) : undefined;
+  if (!gateway || !caller) {
+    sendHtml(
+      res,
+      200,
+      signInPage(gateway && new URL("auth/", gateway.issuer).href)
+    );
     return undefined;
   }
+  const signOut = new URL("auth/logout", gateway.issuer).href;
   const installed = installedWorkspace();
   if (!installed) {
     sendHtml(res, 200, notInstalledPage());
     return undefined;
   }
-
-  const choice = chooseWebSession(candidates, installed.teamId);
-  // `sign-in` only comes back for an empty candidate list, which the check
-  // above already answered; handled anyway so the union stays exhaustive here
-  // rather than relying on that from a distance.
-  if (choice.kind === "sign-in") {
-    sendHtml(res, 200, signInPage(suitePortalUrl()));
+  if (caller.teamId !== installed.teamId) {
+    sendHtml(res, 403, wrongWorkspacePage(caller.name, signOut));
     return undefined;
   }
-  const caller: Caller = {
-    identity: choice.identity,
-    viaSuite: choice.viaSuite,
-  };
-  if (choice.kind === "wrong-workspace") {
-    sendHtml(
-      res,
-      403,
-      wrongWorkspacePage(choice.identity.name, signOutTarget(caller))
-    );
+  if (!(await isHawkBotAdmin(installed.client, caller.userId))) {
+    sendHtml(res, 403, forbiddenPage(caller.name, signOut));
     return undefined;
   }
-  if (!(await isHawkBotAdmin(installed.client, choice.identity.userId))) {
-    sendHtml(
-      res,
-      403,
-      forbiddenPage(choice.identity.name, signOutTarget(caller))
-    );
-    return undefined;
-  }
-  return { caller, client: installed.client };
+  return { caller, signOut, client: installed.client };
 }
 
 /**
@@ -300,8 +220,8 @@ async function handleConfigPage(
     200,
     configPage({
       settings,
-      signedInAs: authed.caller.identity.name,
-      signOut: signOutTarget(authed.caller),
+      signedInAs: authed.caller.name,
+      signOut: authed.signOut,
       flash: flashFromQuery(requestUrl(req)),
     })
   );
@@ -322,7 +242,7 @@ async function handleConfigSet(
     authed.client,
     form.get("key") ?? "",
     form.get("value") ?? "",
-    authed.caller.identity.userId
+    authed.caller.userId
   );
   if (!outcome.ok) {
     redirect(
@@ -365,122 +285,6 @@ async function handleConfigUnset(
   redirect(res, `/config?ok=${encodeURIComponent(text)}`);
 }
 
-function handleSignIn(_req: IncomingMessage, res: ServerResponse): void {
-  const cfg = config();
-  const state = randomBytes(16).toString("base64url");
-  const stateToken = signState(
-    state,
-    Date.now() + STATE_TTL_MS,
-    cfg.SLACK_STATE_SECRET
-  );
-
-  const authorize = new URL("https://slack.com/openid/connect/authorize");
-  authorize.searchParams.set("response_type", "code");
-  authorize.searchParams.set("scope", OIDC_SCOPES);
-  authorize.searchParams.set("client_id", cfg.SLACK_CLIENT_ID);
-  authorize.searchParams.set("state", state);
-  authorize.searchParams.set(
-    "redirect_uri",
-    `${cfg.PUBLIC_URL}/auth/slack/callback`
-  );
-  // Skips Slack's workspace picker when we already know the one workspace
-  // this app serves.
-  const installed = installedWorkspace();
-  if (installed) authorize.searchParams.set("team", installed.teamId);
-
-  redirect(res, authorize.toString(), [
-    serializeCookie(STATE_COOKIE, stateToken, {
-      maxAgeSeconds: STATE_TTL_MS / 1000,
-      secure: isSecure(),
-      path: "/auth",
-    }),
-  ]);
-}
-
-async function handleOAuthCallback(
-  req: IncomingMessage,
-  res: ServerResponse
-): Promise<void> {
-  const cfg = config();
-  const url = requestUrl(req);
-  const clearState = serializeCookie(STATE_COOKIE, "", {
-    maxAgeSeconds: 0,
-    secure: isSecure(),
-    path: "/auth",
-  });
-
-  const code = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const stateToken = parseCookies(req.headers.cookie).get(STATE_COOKIE);
-  const expectedState = stateToken
-    ? verifyState(stateToken, cfg.SLACK_STATE_SECRET, Date.now())
-    : undefined;
-  if (!code || !state || !expectedState || state !== expectedState) {
-    res.setHeader("set-cookie", clearState);
-    sendHtml(
-      res,
-      400,
-      errorPage(
-        "Sign-in didn't complete — the browser's sign-in attempt expired or didn't match. Start again from the configuration page."
-      )
-    );
-    return;
-  }
-
-  // The OIDC token is used for exactly one userInfo call, right here, and
-  // then dropped. Nothing about it is stored or logged (rule 2).
-  const exchange = await new WebClient().openid.connect.token({
-    client_id: cfg.SLACK_CLIENT_ID,
-    client_secret: cfg.SLACK_CLIENT_SECRET,
-    code,
-    redirect_uri: `${cfg.PUBLIC_URL}/auth/slack/callback`,
-  });
-  const identity = (await new WebClient(
-    exchange.access_token
-  ).openid.connect.userInfo()) as {
-    ok?: boolean;
-    name?: string;
-    "https://slack.com/user_id"?: string;
-    "https://slack.com/team_id"?: string;
-  };
-  const userId = identity["https://slack.com/user_id"];
-  const teamId = identity["https://slack.com/team_id"];
-  if (!identity.ok || !userId || !teamId) {
-    res.setHeader("set-cookie", clearState);
-    sendHtml(res, 502, errorPage("Slack didn't say who you are. Try again."));
-    return;
-  }
-
-  const session: WebSession = {
-    userId,
-    teamId,
-    name: identity.name ?? userId,
-    exp: Date.now() + SESSION_TTL_MS,
-  };
-  log.info("web sign-in", { userId, teamId });
-  redirect(res, "/config", [
-    clearState,
-    serializeCookie(
-      SESSION_COOKIE,
-      signSession(session, cfg.SLACK_STATE_SECRET),
-      { maxAgeSeconds: SESSION_TTL_MS / 1000, secure: isSecure() }
-    ),
-  ]);
-}
-
-function handleSignOut(req: IncomingMessage, res: ServerResponse): void {
-  if (!isSameOrigin(req)) {
-    sendHtml(res, 403, errorPage("Cross-origin request refused."));
-    return;
-  }
-  redirect(res, "/", [
-    serializeCookie(SESSION_COOKIE, "", {
-      maxAgeSeconds: 0,
-      secure: isSecure(),
-    }),
-  ]);
-}
-
 /* ----------------------------------------------------------------- routes */
 
 type Handler = (
@@ -490,7 +294,7 @@ type Handler = (
 
 /**
  * Bolt swallows a rejected handler promise; without this, a Slack API error
- * during sign-in would leave the browser hanging on a request that never
+ * during an admin check would leave the browser hanging on a request that never
  * finishes.
  */
 function guarded(handler: Handler): Handler {
@@ -528,17 +332,6 @@ export function webRoutes(): CustomRoute[] {
       path: "/config/unset",
       method: ["POST"],
       handler: guarded(handleConfigUnset),
-    },
-    { path: "/auth/slack", method: ["GET"], handler: guarded(handleSignIn) },
-    {
-      path: "/auth/slack/callback",
-      method: ["GET"],
-      handler: guarded(handleOAuthCallback),
-    },
-    {
-      path: "/auth/sign-out",
-      method: ["POST"],
-      handler: guarded(handleSignOut),
     },
   ];
 }

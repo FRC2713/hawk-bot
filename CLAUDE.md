@@ -63,11 +63,8 @@ src/slack/settingsWrite.ts
                         the one write path for settings, shared by the config
                         command and the web configuration page
 src/web/routes.ts       the web surface at bot.<domain>: a landing page, and a
-                        configuration page behind Sign in with Slack (OIDC,
-                        identity only — see ADR-0015) or hawk_suite's gateway
-                        session, plus the HawkBot Admin check either way
-src/web/session.ts      stateless HMAC-signed session cookies, and which of the
-                        two doors answers a request; pure, tested
+                        configuration page behind hawk_suite's gateway
+                        identity plus the HawkBot Admin check (ADR-0017)
 src/web/suiteSession.ts parses trusted Hawk Suite identity headers; pure,
                         enabled only on the isolated gateway network
 src/web/pages.ts        HTML rendering; pure, tested
@@ -126,12 +123,8 @@ nothing in the suite — Caddy fronts it.
 1. **No user token scopes.** Ever. This app is in a workspace shared with
    minors and its defensibility rests on being unable to read anything a
    person could not see it read. Adding a scope that reads or acts as a
-   person changes what this app _is_. The one deliberate exception: the
-   OpenID Connect identity scopes (`openid`, `profile`) behind the web
-   configuration page's Sign in with Slack, which answer "who is this
-   person" and grant nothing else — the token is used for that single
-   lookup and discarded, never stored. See ADR-0015. Accepting hawk_suite's
-   gateway identity headers adds no scope at all and asks Slack for nothing.
+   person changes what this app _is_. Web sign-in is hawk_suite's gateway,
+   which adds no scope to this app at all (ADR-0017).
 2. **Never log message text or a token.** `logger.ts` writes JSON to stderr and
    that is not an auditable place.
 3. **Migrations that have shipped are never edited.** Add another file.
@@ -140,9 +133,7 @@ nothing in the suite — Caddy fronts it.
    `domain/settings.ts`. Nothing team-specific is ever baked into the image.
 5. **Keep `BOT_SCOPES` and `docs/slack-app-manifest.yaml` identical.** Slack
    grants what the manifest says; Bolt asks for what the code says. When they
-   disagree the symptom is a command that silently does nothing. The same
-   goes for the manifest's OIDC user scopes and `OIDC_SCOPES` in
-   `src/web/routes.ts`, and for the `/auth/slack/callback` redirect URL.
+   disagree the symptom is a command that silently does nothing.
 6. **`.env.example` documents every variable `config.ts` reads.** A missing one
    reads as "the feature is off".
 
@@ -153,8 +144,9 @@ It is enabled only by `HAWK_SUITE_TRUST_PROXY=true` with a configured workspace
 and portal issuer. Keep the app on its isolated Caddy network with no published
 ports. Require matching subject, team and user IDs and the exact `suite/member`
 role. Node request adapters use `headersDistinct` to reject duplicate identity
-fields. Local Slack sign-in remains available; suite identity still passes the
-installed-workspace and `isHawkBotAdmin()` checks on every config request.
+fields. It is the only web sign-in; without it `/config` points at
+`/hawkbot config`. The identity still passes the installed-workspace and
+`isHawkBotAdmin()` checks on every config request.
 Name and email are display only. Gateway roles are not Slack user groups.
 See `docs/deploy.md` for deployment and trust requirements.
 
